@@ -46,14 +46,13 @@ dealerAssignmentQueue.process(async (job) => {
           `Found ${dealers.length} available dealers for product ${productId}`
         );
 
-        // 2) Sort & pick
         const candidates = dealers
           .filter((d) => d.quantityAvailable >= qtyNeeded)
           .sort((a, b) =>
             b.priorityOverride !== a.priorityOverride
               ? b.priorityOverride - a.priorityOverride
               : b.quantityAvailable - a.quantityAvailable
-          );
+          ); 
 
         if (!candidates.length) {
           logger.warn(

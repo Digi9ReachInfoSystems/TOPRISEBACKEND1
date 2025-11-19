@@ -2,6 +2,11 @@ const SLAViolation = require("../models/slaViolation");
 const DealerSLA = require("../models/dealerSla");
 const Order = require("../models/order");
 const logger = require("/packages/utils/logger");
+const { 
+  checkSLAViolationOnPacking, 
+  recordSKUViolations,
+  updateOrderWithSLAViolation 
+} = require("../utils/slaViolationUtils");
 
 /**
  * Middleware to automatically check and record SLA violations
@@ -48,81 +53,83 @@ const slaViolationMiddleware = {
   },
 
   /**
-   * Check SLA violation for a specific order
+   * Check SLA violation for a specific order (SKU-based)
    * @param {Object} order - Order object
    * @returns {Boolean} - True if violation was detected and recorded
    */
   async checkOrderSLAViolation(order) {
     try {
-      if (!order || !order.dealerMapping || order.dealerMapping.length === 0) {
+      if (!order || !order.skus || order.skus.length === 0) {
         return false;
       }
 
-      const now = new Date();
-      const orderDate = order.orderDate || order.createdAt || order.timestamps?.createdAt;
-      
-      if (!orderDate) {
-        logger.warn(`Order ${order.orderId} has no order date, skipping SLA check`);
+      // Get all packed SKUs that haven't been delivered/cancelled
+      const packedSkus = order.skus.filter(s => 
+        s.tracking_info?.status === "Packed" && 
+        s.tracking_info?.timestamps?.packedAt &&
+        s.tracking_info?.status !== "Delivered" &&
+        s.tracking_info?.status !== "Cancelled"
+      );
+
+      if (packedSkus.length === 0) {
         return false;
       }
 
-      // Check each dealer assignment for SLA violations
-      for (const dealerMapping of order.dealerMapping) {
-        const dealerId = dealerMapping.dealerId;
-        if (!dealerId) continue;
+      // Use SKU-based violation checking
+      const slaCheck = await checkSLAViolationOnPacking(order, null);
 
-        // Get dealer SLA configuration
-        const dealerSLA = await DealerSLA.findOne({ 
-          dealer_id: dealerId.toString(),
-          is_active: true 
-        }).populate('sla_type');
-
-        if (!dealerSLA || !dealerSLA.sla_type) {
-          logger.debug(`No SLA configuration found for dealer ${dealerId}`);
-          continue;
-        }
-
-        // Calculate expected fulfillment time
-        const expectedFulfillmentTime = this.calculateExpectedFulfillmentTime(orderDate, dealerSLA);
-        if (!expectedFulfillmentTime) continue;
-
-        // Check if current time exceeds expected fulfillment time
-        if (now > expectedFulfillmentTime) {
-          // Check if violation already exists for this order-dealer combination
-          const existingViolation = await SLAViolation.findOne({
+      // Record SKU-level violations
+      if (slaCheck.skuViolations && slaCheck.skuViolations.length > 0) {
+        try {
+          // Check if violations already exist for these SKUs
+          const existingViolations = await SLAViolation.find({
             order_id: order._id,
-            dealer_id: dealerId,
+            sku: { $in: slaCheck.skuViolations.map(sv => sv.sku) },
             resolved: false
           });
 
-          if (!existingViolation) {
-            // Calculate violation minutes
-            const violationMinutes = Math.round((now - expectedFulfillmentTime) / (1000 * 60));
-            
-            // Record the violation
-            await this.recordSLAViolation({
-              dealer_id: dealerId,
-              order_id: order._id,
-              expected_fulfillment_time: expectedFulfillmentTime,
-              actual_fulfillment_time: now,
-              violation_minutes: violationMinutes,
-              notes: `Automatic SLA violation detection. Order not fulfilled within expected time. Expected: ${expectedFulfillmentTime.toISOString()}, Current: ${now.toISOString()}`
-            });
+          const existingSkuSet = new Set(existingViolations.map(v => v.sku?.toString()));
 
-            // Update order with violation information
-            await this.updateOrderWithSLAViolation(order._id, {
-              expected_fulfillment_time: expectedFulfillmentTime,
-              actual_fulfillment_time: now,
-              violation_minutes: violationMinutes
-            });
+          // Only record new violations
+          const newViolations = slaCheck.skuViolations.filter(
+            sv => !existingSkuSet.has(sv.sku)
+          );
 
-            logger.info(`SLA violation recorded for order ${order.orderId}, dealer ${dealerId}: ${violationMinutes} minutes late`);
-            return true;
+          if (newViolations.length > 0) {
+            const violationDataArray = newViolations.map(sv => sv.violation);
+            await recordSKUViolations(violationDataArray);
+            logger.info(
+              `Recorded ${newViolations.length} new SKU-level SLA violations for order ${order.orderId}`
+            );
           }
+        } catch (violationError) {
+          logger.error(`Failed to record SKU-level violations for order ${order.orderId}:`, violationError);
         }
       }
 
-      return false;
+      // Only mark order as violated if ALL SKUs are violated
+      if (slaCheck.hasViolation && slaCheck.violation && slaCheck.allSkusViolated) {
+        try {
+          // Check if order is already marked as violated
+          const existingOrderViolation = await SLAViolation.findOne({
+            order_id: order._id,
+            sku: null, // Order-level violation (no SKU specified)
+            resolved: false
+          });
+
+          if (!existingOrderViolation) {
+            await updateOrderWithSLAViolation(order._id, slaCheck.violation);
+            logger.info(
+              `Order ${order.orderId} marked as SLA violated: All SKUs violated. Max violation: ${slaCheck.violation.violation_minutes} minutes`
+            );
+            return true;
+          }
+        } catch (violationError) {
+          logger.error(`Failed to update order with SLA violation for order ${order.orderId}:`, violationError);
+        }
+      }
+
+      return slaCheck.skuViolations && slaCheck.skuViolations.length > 0;
     } catch (error) {
       logger.error(`Error checking SLA violation for order ${order.orderId}:`, error);
       return false;

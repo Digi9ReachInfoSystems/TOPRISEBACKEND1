@@ -71,17 +71,16 @@ const AuditLogSchema = new mongoose.Schema(
         "BANNER_UPDATED",
         "BANNER_DELETED",
 
-        // Vehicle info related actions
         "VEHICLE_INFO_CREATED",
         "VEHICLE_INFO_UPDATED",
         "VEHICLE_INFO_DELETED",
 
-        // Popular vehicle related actions
         "POPULAR_VEHICLE_CREATED",
         "POPULAR_VEHICLE_UPDATED",
         "POPULAR_VEHICLE_DELETED",
+        "EMPLOYEE_PICKLIST_ACCESSED",
+        "FULFILLMENT_STAFF_PICKLIST_STATS_ACCESSED",
 
-        // Purchase order related actions
         "PURCHASE_ORDER_CREATED",
         "PURCHASE_ORDER_UPDATED",
         "PURCHASE_ORDER_DELETED",

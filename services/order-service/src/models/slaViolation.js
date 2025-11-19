@@ -13,6 +13,11 @@ const SLAViolationSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  sku: {
+    type: String,
+    required: false,
+    index: true,
+  }, // Optional: for SKU-level tracking
   expected_fulfillment_time: { type: Date, required: true },
   actual_fulfillment_time: { type: Date, required: true },
   violation_minutes: { type: Number, required: true },

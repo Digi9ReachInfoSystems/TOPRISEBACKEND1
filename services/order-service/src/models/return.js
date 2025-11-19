@@ -72,18 +72,25 @@ const ReturnSchema = new mongoose.Schema({
     completedDate: Date,
     logisticsPartner: String,
     trackingNumber: String,
+    borzoOrderId: String,
+    borzoTrackingUrl: String,
     pickupAddress: {
       address: String,
       city: String,
       pincode: String,
       state: String,
+      latitude: Number,
+      longitude: Number,
     },
     deliveryAddress: {
       address: String,
       city: String,
       pincode: String,
       state: String,
+      latitude: Number,
+      longitude: Number,
     },
+    borzoResponse: mongoose.Schema.Types.Mixed, // Store full Borzo API response
   },
 
 

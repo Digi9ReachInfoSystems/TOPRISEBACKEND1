@@ -1,11 +1,90 @@
 const Return = require("../models/return");
 const Order = require("../models/order");
+const Payment = require("../models/paymentModel");
 const { sendSuccess, sendError } = require("/packages/utils/responseHandler");
 const logger = require("/packages/utils/logger");
 const axios = require("axios");
 const {
   createUnicastOrMulticastNotificationUtilityFunction,
 } = require("/packages/utils/notificationService");
+
+// Helper function to geocode address
+async function geocodeAddress(address) {
+  try {
+    if (!address || typeof address !== "string") return null;
+    const resp = await axios.get(
+      "https://nominatim.openstreetmap.org/search",
+      {
+        params: { q: address, format: "json", limit: 1 },
+        headers: { "User-Agent": "toprise-order-service/1.0" },
+        timeout: 10000,
+      }
+    );
+    const first = Array.isArray(resp.data) ? resp.data[0] : null;
+    if (first && first.lat && first.lon) {
+      return { latitude: parseFloat(first.lat), longitude: parseFloat(first.lon) };
+    }
+    return null;
+  } catch (e) {
+    logger.warn(`Geocoding failed for address: ${address} -> ${e.message}`);
+    return null;
+  }
+}
+
+// Helper function to build address string
+function buildAddressString(parts) {
+  return [
+    parts?.building_no,
+    parts?.street,
+    parts?.area,
+    parts?.city,
+    parts?.state,
+    parts?.pincode,
+    parts?.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+// Helper function to fetch dealer information from user service
+async function fetchDealerInfo(dealerId, authorizationHeader) {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (authorizationHeader) {
+      headers.Authorization = authorizationHeader;
+    }
+
+    const response = await axios.get(
+      `http://user-service:5001/api/users/dealer/${dealerId}`,
+      { timeout: 5000, headers }
+    );
+
+    return response.data?.data || null;
+  } catch (error) {
+    logger.warn(`Failed to fetch dealer info for ${dealerId}:`, error.message);
+    return null;
+  }
+}
+
+// Helper function to fetch user information from user service
+async function fetchUserInfo(userId, authorizationHeader) {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (authorizationHeader) {
+      headers.Authorization = authorizationHeader;
+    }
+
+    const response = await axios.get(
+      `http://user-service:5001/api/users/${userId}`,
+      { timeout: 5000, headers }
+    );
+
+    return response.data?.data || null;
+  } catch (error) {
+    logger.warn(`Failed to fetch user info for ${userId}:`, error.message);
+    return null;
+  }
+}
 
 // Product service URL for checking returnable status
 const PRODUCT_SERVICE_URL =
@@ -228,11 +307,12 @@ exports.schedulePickup = async (req, res) => {
       );
     }
 
-    // Create pickup request with logistics partner
+    // Create pickup request with logistics partner (Borzo)
     const pickupRequest = await createLogisticsPickupRequest(
       returnRequest,
       scheduledDate,
-      pickupAddress
+      pickupAddress,
+      req.headers.authorization
     );
 
     // Update return request
@@ -470,7 +550,8 @@ exports.processRefund = async (req, res) => {
     // Process refund with payment gateway
     const refundResult = await processRefundPayment(
       returnRequest,
-      refundMethod
+      refundMethod,
+      req.headers.authorization
     );
 
     if (!refundResult.success) {
@@ -1150,18 +1231,38 @@ async function validateReturnEligibility(order, sku) {
  */
 async function schedulePickup(returnId, authToken) {
   try {
-    // This would integrate with your logistics partner API
-    // For now, we'll create a mock pickup request
-    const pickupId = `PICKUP_${Date.now()}`;
-    const scheduledDate = new Date();
-    scheduledDate.setDate(scheduledDate.getDate() + 1); // Schedule for tomorrow
+    const returnRequest = await Return.findById(returnId);
+    if (!returnRequest) {
+      throw new Error("Return request not found");
+    }
 
-    return {
-      pickupId,
+    // Schedule pickup for tomorrow by default
+    const scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + 1);
+
+    // Create Borzo pickup request
+    const pickupRequest = await createLogisticsPickupRequest(
+      returnRequest,
       scheduledDate,
-      logisticsPartner: "Borzo", // Your logistics partner
-      trackingNumber: `TRK_${Date.now()}`,
+      null, // Use customer address from order
+      authToken
+    );
+
+    // Update return request
+    returnRequest.returnStatus = "Pickup_Scheduled";
+    returnRequest.pickupRequest = {
+      ...returnRequest.pickupRequest,
+      ...pickupRequest,
     };
+    returnRequest.timestamps.pickupScheduledAt = new Date();
+
+    await returnRequest.save();
+
+    logger.info(
+      `Pickup scheduled for return ${returnId}: Borzo order ${pickupRequest.borzoOrderId || pickupRequest.pickupId}`
+    );
+
+    return pickupRequest;
   } catch (error) {
     logger.error("Schedule pickup error:", error);
     throw error;
@@ -1169,35 +1270,164 @@ async function schedulePickup(returnId, authToken) {
 }
 
 /**
- * Create logistics pickup request
+ * Create logistics pickup request with Borzo
+ * Pickup from customer address, delivery to dealer address
  */
 async function createLogisticsPickupRequest(
   returnRequest,
   scheduledDate,
-  pickupAddress
+  pickupAddress,
+  authToken
 ) {
   try {
-    // This would integrate with your logistics partner API
-    // For now, we'll create a mock pickup request
-    const pickupId = `PICKUP_${Date.now()}`;
+    // Fetch order to get customer details
+    const order = await Order.findById(returnRequest.orderId);
+    if (!order) {
+      throw new Error("Order not found for return request");
+    }
 
+    // Fetch dealer information
+    let dealerInfo = null;
+    if (returnRequest.dealerId) {
+      dealerInfo = await fetchDealerInfo(returnRequest.dealerId.toString(), authToken);
+    }
+
+    // Build customer address (pickup point)
+    const customerAddressString =
+      pickupAddress?.address ||
+      order.customerDetails?.address ||
+      buildAddressString({
+        building_no: order.customerDetails?.building_no,
+        street: order.customerDetails?.street,
+        area: order.customerDetails?.area,
+        city: order.customerDetails?.city,
+        state: order.customerDetails?.state,
+        pincode: order.customerDetails?.pincode,
+        country: order.customerDetails?.country || "India",
+      }) ||
+      "Customer Address";
+
+    const customerGeo = await geocodeAddress(customerAddressString);
+
+    // Build dealer address (drop point)
+    const dealerAddressString =
+      dealerInfo?.address?.full ||
+      buildAddressString({
+        building_no: dealerInfo?.address?.building_no,
+        street: dealerInfo?.address?.street,
+        area: dealerInfo?.address?.area,
+        city: dealerInfo?.address?.city,
+        state: dealerInfo?.address?.state,
+        pincode: dealerInfo?.address?.pincode,
+        country: dealerInfo?.address?.country || "India",
+      }) ||
+      dealerInfo?.business_address ||
+      dealerInfo?.registered_address ||
+      "Dealer Address";
+
+    const dealerGeo = await geocodeAddress(dealerAddressString);
+
+    // Create pickup point (from customer)
+    const pickupPoint = {
+      address: customerAddressString,
+      contact_person: {
+        name: order.customerDetails?.name || "Customer",
+        phone: order.customerDetails?.phone || "0000000000",
+      },
+      latitude: customerGeo?.latitude || 28.583905,
+      longitude: customerGeo?.longitude || 77.322733,
+      client_order_id: `RETURN_${returnRequest._id}_${Date.now()}`,
+    };
+
+    // Create drop point (to dealer)
+    const dropPoint = {
+      address: dealerAddressString,
+      contact_person: {
+        name: dealerInfo?.business_name || dealerInfo?.legal_name || "Dealer",
+        phone:
+          dealerInfo?.mobile_number ||
+          dealerInfo?.contact_number ||
+          dealerInfo?.phone ||
+          "0000000000",
+      },
+      latitude: dealerGeo?.latitude || 28.57908,
+      longitude: dealerGeo?.longitude || 77.31912,
+      client_order_id: `RETURN_${returnRequest._id}_${Date.now()}`,
+    };
+
+    // Create Borzo order payload
+    const borzoOrderPayload = {
+      type: "standard", // Use standard for returns
+      matter: "Return",
+      vehicle_type_id: "8",
+      total_weight_kg: "2", // Default weight for returns
+      insurance_amount: "500.00",
+      is_client_notification_enabled: true,
+      is_contact_person_notification_enabled: true,
+      points: [pickupPoint, dropPoint],
+    };
+
+    logger.info(
+      `[BORZO] Creating return pickup order for return ${returnRequest._id}`
+    );
+    logger.info(
+      `[BORZO] Pickup from: ${customerAddressString}, Delivery to: ${dealerAddressString}`
+    );
+
+    // Create Borzo order
+    let borzoResponse = null;
+    try {
+      const response = await axios.post(
+        "https://robotapitest-in.borzodelivery.com/api/business/1.6/create-order",
+        borzoOrderPayload,
+        {
+          headers: {
+            "X-DV-Auth-Token": "29C64BE0ED20FC6C654F947F7E3D8E33496F51F6",
+            "Content-Type": "application/json",
+          },
+          timeout: 30000,
+        }
+      );
+
+      borzoResponse = response.data;
+      logger.info(
+        `[BORZO] Return pickup order created successfully: ${borzoResponse.order_id}`
+      );
+    } catch (borzoError) {
+      logger.error("[BORZO] Failed to create return pickup order:", {
+        status: borzoError.response?.status,
+        statusText: borzoError.response?.statusText,
+        data: borzoError.response?.data,
+        message: borzoError.message,
+      });
+      // Continue even if Borzo fails - we'll still create the pickup request record
+    }
+
+    // Return pickup request details
     return {
-      pickupId,
-      scheduledDate: new Date(scheduledDate),
+      pickupId: borzoResponse?.order_id || `PICKUP_${Date.now()}`,
+      scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
       logisticsPartner: "Borzo",
-      trackingNumber: `TRK_${Date.now()}`,
-      pickupAddress: pickupAddress || {
-        address: "Customer Address",
-        city: "Customer City",
-        pincode: "123456",
-        state: "Customer State",
+      trackingNumber: borzoResponse?.tracking_number || `TRK_${Date.now()}`,
+      borzoOrderId: borzoResponse?.order_id || null,
+      borzoTrackingUrl: borzoResponse?.tracking_url || null,
+      pickupAddress: {
+        address: customerAddressString,
+        city: order.customerDetails?.city || "Unknown",
+        pincode: order.customerDetails?.pincode || "000000",
+        state: order.customerDetails?.state || "Unknown",
+        latitude: customerGeo?.latitude,
+        longitude: customerGeo?.longitude,
       },
       deliveryAddress: {
-        address: "Dealer Address",
-        city: "Dealer City",
-        pincode: "654321",
-        state: "Dealer State",
+        address: dealerAddressString,
+        city: dealerInfo?.address?.city || "Unknown",
+        pincode: dealerInfo?.address?.pincode || "000000",
+        state: dealerInfo?.address?.state || "Unknown",
+        latitude: dealerGeo?.latitude,
+        longitude: dealerGeo?.longitude,
       },
+      borzoResponse: borzoResponse || null,
     };
   } catch (error) {
     logger.error("Create logistics pickup request error:", error);
@@ -1206,24 +1436,285 @@ async function createLogisticsPickupRequest(
 }
 
 /**
- * Process refund payment
+ * Process refund payment through Razorpay
+ * Checks for bank account in user, if available uses payout, otherwise refunds to source
  */
-async function processRefundPayment(returnRequest, refundMethod) {
+async function processRefundPayment(returnRequest, refundMethod, authToken = null) {
   try {
-    // This would integrate with your payment gateway API
-    // For now, we'll create a mock refund
-    const transactionId = `REFUND_${Date.now()}`;
+    const keyId = process.env.RAZORPAY_KEY_ID || "rzp_test_je9PPHh0HQqIFX";
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || "tdB9zkAvQLdYVRKgtOWNfIhZ";
+    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+
+    // Fetch order and payment details
+    const order = await Order.findById(returnRequest.orderId).populate("payment_id");
+    if (!order) {
+      throw new Error("Order not found for return request");
+    }
+
+    const payment = await Payment.findById(order.payment_id);
+    if (!payment) {
+      throw new Error("Payment not found for order");
+    }
+
+    const refundAmount = returnRequest.refund.refundAmount;
+    const Refund = require("../models/refund");
+
+    // Fetch user details to check for bank account
+    let userData = null;
+    let hasBankAccount = false;
+    
+    try {
+      const userResponse = await axios.get(
+        `http://user-service:5001/api/users/${returnRequest.customerId}`,
+        {
+          headers: {
+            Authorization: authToken || "",
+            "Content-Type": "application/json",
+          },
+          timeout: 5000,
+        }
+      );
+      userData = userResponse.data?.data || userResponse.data;
+      
+      // Check if user has bank account details
+      hasBankAccount = !!(
+        userData?.bank_details?.account_number &&
+        userData?.bank_details?.ifsc_code &&
+        userData?.bank_details?.bank_account_holder_name
+      );
+    } catch (userError) {
+      logger.warn(`Failed to fetch user details: ${userError.message}`);
+      // Continue with source refund if user fetch fails
+    }
+
+    // Determine refund method based on user bank account and refundMethod parameter
+    const useBankPayout = hasBankAccount && (
+      refundMethod === "Bank_Account" || 
+      refundMethod === "Wallet" ||
+      !payment.payment_id // If no payment_id, use payout
+    );
+
+    if (useBankPayout) {
+      // Refund to bank account using Razorpay Payouts
+      logger.info(`Processing refund to bank account for return ${returnRequest._id}`);
+      
+      try {
+        // Step 1: Create Contact
+        const contactResp = await axios.post(
+          "https://api.razorpay.com/v1/contacts",
+          {
+            name: userData.bank_details.bank_account_holder_name,
+            email: userData.email || order.customerDetails?.email || "",
+            contact: userData.phone_Number || order.customerDetails?.phone || "",
+            type: "customer",
+            reference_id: `ref_${returnRequest._id}_${Date.now()}`,
+            notes: { 
+              purpose: "Return Refund Payout",
+              return_id: returnRequest._id.toString(),
+              order_id: order._id.toString()
+            },
+          },
+          {
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000,
+          }
+        );
+
+        const contactId = contactResp.data.id;
+
+        // Step 2: Create Fund Account (Bank Account)
+        const fundResp = await axios.post(
+          "https://api.razorpay.com/v1/fund_accounts",
+          {
+            contact_id: contactId,
+            account_type: "bank_account",
+            bank_account: {
+              name: userData.bank_details.bank_account_holder_name,
+              ifsc: userData.bank_details.ifsc_code.toUpperCase(),
+              account_number: userData.bank_details.account_number,
+            },
+          },
+          {
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000,
+          }
+        );
+
+        const fundAccountId = fundResp.data.id;
+
+        // Step 3: Create Payout
+        const notes = {
+          order_id: order._id.toString(),
+          return_id: returnRequest._id.toString(),
+          purpose: "Return Refund",
+        };
+
+        const payoutResp = await axios.post(
+          "https://api.razorpay.com/v1/payouts",
+          {
+            account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER || keyId, // RazorpayX account
+            fund_account_id: fundAccountId,
+            amount: Math.round(refundAmount * 100), // Convert to paise
+            currency: "INR",
+            mode: "NEFT", // NEFT | RTGS | IMPS | UPI
+            purpose: "payout",
+            queue_if_low_balance: true,
+            narration: "Return Refund Payout",
+            reference_id: `payout_${returnRequest._id}_${Date.now()}`,
+            notes: notes,
+          },
+          {
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/json",
+              "X-Payout-Idempotency": `payout_${returnRequest._id}_${Date.now()}`,
+            },
+            timeout: 30000,
+          }
+        );
+
+        // Create refund record
+        const refundRecord = new Refund({
+          order_id: order._id,
+          return_id: returnRequest._id.toString(),
+          razorpay_payout_id: payoutResp.data.id,
+          amount: refundAmount,
+          currency: payoutResp.data.currency || "INR",
+          status: payoutResp.data.status,
+          entity: payoutResp.data.entity,
+          refund_type: "Refund-COD",
+          receipt: payoutResp.data.reference_id,
+          reason: "Return refund via bank payout",
+          mode: payoutResp.data.mode || "NEFT",
+        });
+
+        await refundRecord.save();
+        returnRequest.refund.refund_id = refundRecord._id;
+        await returnRequest.save();
+
+        logger.info(`Bank payout created successfully: ${payoutResp.data.id}`);
+
+        return {
+          success: true,
+          transactionId: payoutResp.data.id,
+          refundId: refundRecord._id,
+          refundType: "Bank_Payout",
+          message: "Refund processed successfully to bank account",
+          razorpayResponse: payoutResp.data,
+        };
+      } catch (payoutError) {
+        logger.error("Bank payout failed, falling back to source refund:", payoutError.response?.data || payoutError.message);
+        // Fall through to source refund if payout fails
+      }
+    }
+
+    // Refund to source account (original payment method)
+    logger.info(`Processing refund to source account for return ${returnRequest._id}`);
+    
+    if (!payment.payment_id) {
+      throw new Error("Payment ID not found. Cannot process refund to source account.");
+    }
+
+    // Check payment details and refundable balance
+    const paymentDetailsResponse = await axios.get(
+      `https://api.razorpay.com/v1/payments/${payment.payment_id}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${auth}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    const paymentDetails = paymentDetailsResponse.data;
+    const capturedAmount = paymentDetails.amount || 0;
+    const alreadyRefunded = paymentDetails.amount_refunded || 0;
+    const requestedRefundAmount = Math.round(refundAmount * 100); // in paise
+    const refundableBalance = capturedAmount - alreadyRefunded;
+
+    if (requestedRefundAmount > refundableBalance) {
+      throw new Error(
+        `Refund amount (₹${refundAmount}) exceeds available balance (₹${refundableBalance / 100})`
+      );
+    }
+
+    // Create refund request
+    const notes = {
+      order_id: order._id.toString(),
+      return_id: returnRequest._id.toString(),
+      purpose: "Return Refund",
+    };
+
+    const refundRequestData = {
+      amount: requestedRefundAmount,
+      speed: "optimum",
+      notes: notes,
+      receipt: `receipt_${returnRequest._id}_${Date.now()}`,
+    };
+
+    const refundResponse = await axios.post(
+      `https://api.razorpay.com/v1/payments/${payment.payment_id}/refund`,
+      refundRequestData,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${auth}`,
+        },
+        timeout: 30000,
+      }
+    );
+
+    if (refundResponse.data.status === "failed") {
+      throw new Error(
+        `Refund failed: ${refundResponse.data.error?.description || "Unknown error"}`
+      );
+    }
+
+    // Create refund record
+    const refundRecord = new Refund({
+      order_id: order._id,
+      return_id: returnRequest._id.toString(),
+      razorpay_refund_id: refundResponse.data.id,
+      amount: refundAmount,
+      currency: refundResponse.data.currency || "INR",
+      status: refundResponse.data.status,
+      entity: refundResponse.data.entity,
+      refund_type: "Refund-Online",
+      receipt: refundResponse.data.receipt,
+      reason: "Return refund to source account",
+    });
+
+    await refundRecord.save();
+    returnRequest.refund.refund_id = refundRecord._id;
+    await returnRequest.save();
+
+    logger.info(`Source refund created successfully: ${refundResponse.data.id}`);
 
     return {
       success: true,
-      transactionId,
-      message: "Refund processed successfully",
+      transactionId: refundResponse.data.id,
+      refundId: refundRecord._id,
+      refundType: "Source_Refund",
+      message: "Refund processed successfully to source account",
+      razorpayResponse: refundResponse.data,
     };
   } catch (error) {
-    logger.error("Process refund payment error:", error);
+    logger.error("Process refund payment error:", {
+      error: error.message,
+      response: error.response?.data,
+      returnId: returnRequest._id,
+    });
     return {
       success: false,
-      message: "Failed to process refund payment",
+      message: error.response?.data?.error?.description || error.message || "Failed to process refund payment",
+      error: error.response?.data || error.message,
     };
   }
 }

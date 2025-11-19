@@ -70,7 +70,7 @@ router.get(
 router.get(
   "/picklists",
   requireAuth,
-  auditMiddleware("PICKLIST_ACCESSED", "Order", "ORDER_MANAGEMENT"),
+  // auditMiddleware("PICKLIST_ACCESSED", "Order", "ORDER_MANAGEMENT"),
   orderController.getPickList
 );
 router.get(
@@ -82,7 +82,7 @@ router.get(
 router.get(
   "/picklists/employee/:employeeId",
   requireAuth,
-  auditMiddleware("EMPLOYEE_PICKLIST_ACCESSED", "Order", "ORDER_MANAGEMENT"),
+  // auditMiddleware("EMPLOYEE_PICKLIST_ACCESSED", "Order", "ORDER_MANAGEMENT"),
   orderController.getPickListByEmployee
 );
 

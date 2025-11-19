@@ -21,7 +21,9 @@ const {
 } = require("../../../../packages/utils/notificationService");
 const {
   checkSLAViolationOnPacking,
+  checkSKUSLAViolation,
   recordSLAViolation,
+  recordSKUViolations,
   updateOrderWithSLAViolation,
 } = require("../utils/slaViolationUtils");
 const USER_SERVICE_URL =
@@ -840,13 +842,14 @@ exports.getOrderById = async (req, res) => {
 
 exports.getPickList = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, dealerId, fulfilmentStaff } = req.query;
+    const { page = 1, limit = 20, status, dealerId, fulfilmentStaff,orderId } = req.query;
     const skip = (page - 1) * limit;
 
     // Build filter
     const filter = {};
     if (status) filter.scanStatus = status;
     if (dealerId) filter.dealerId = dealerId;
+    if (orderId) filter.linkedOrderId = orderId;
     if (fulfilmentStaff) filter.fulfilmentStaff = fulfilmentStaff;
 
     // Get picklists with pagination
@@ -1469,34 +1472,89 @@ exports.markAsPacked = async (req, res) => {
       }
     }
 
-    // Check for SLA violation after marking as packed
-    const slaCheck = await checkSLAViolationOnPacking(updatedOrder, packedAt);
+    // Check for SLA violation after marking as packed (SKU-based)
+    let slaCheck;
+    if (skus && Array.isArray(skus) && skus.length > 0) {
+      // Check specific SKUs that were just packed
+      slaCheck = await checkSLAViolationOnPacking(updatedOrder, packedAt, skus[0]);
+      // If multiple SKUs, check all of them
+      if (skus.length > 1) {
+        for (let i = 1; i < skus.length; i++) {
+          const skuCheck = await checkSLAViolationOnPacking(updatedOrder, packedAt, skus[i]);
+          if (skuCheck.hasViolation) {
+            if (!slaCheck.skuViolations) slaCheck.skuViolations = [];
+            slaCheck.skuViolations.push({
+              sku: skus[i],
+              violation: skuCheck.violation
+            });
+          }
+        }
+        // Re-evaluate if all checked SKUs are violated
+        const allCheckedSkusViolated = slaCheck.skuViolations?.length === skus.length;
+        slaCheck.allSkusViolated = allCheckedSkusViolated;
+        slaCheck.hasViolation = allCheckedSkusViolated;
+      }
+    } else {
+      // Check all packed SKUs in the order
+      slaCheck = await checkSLAViolationOnPacking(updatedOrder, packedAt);
+    }
 
     let responseData = {
       order: updatedOrder,
       message: "Order SKUs marked as packed successfully",
     };
 
-    // If SLA violation detected, record it
-    if (slaCheck.hasViolation && slaCheck.violation) {
+    // Record SKU-level violations
+    if (slaCheck.skuViolations && slaCheck.skuViolations.length > 0) {
       try {
-        // Record the violation in SLA violations table
-        const violationRecord = await recordSLAViolation(slaCheck.violation);
+        // Record all SKU-level violations
+        const violationDataArray = slaCheck.skuViolations.map(sv => sv.violation);
+        const violationRecords = await recordSKUViolations(violationDataArray);
 
-        // Update order with SLA violation information
+        logger.info(
+          `Recorded ${violationRecords.length} SKU-level SLA violations for order ${orderId}`
+        );
+
+        responseData.skuViolations = violationRecords;
+        responseData.message += `. ${violationRecords.length} SKU(s) violated SLA.`;
+      } catch (violationError) {
+        logger.error("Failed to record SKU-level SLA violations:", violationError);
+        responseData.warning =
+          "Order packed successfully but failed to record SKU-level SLA violations";
+      }
+    }
+
+    // Only mark order as violated if ALL SKUs are violated
+    if (slaCheck.hasViolation && slaCheck.violation && slaCheck.allSkusViolated) {
+      try {
+        // Update order with SLA violation information (only if all SKUs violated)
         await updateOrderWithSLAViolation(orderId, slaCheck.violation);
 
         logger.info(
-          `SLA violation recorded for order ${orderId}: ${slaCheck.violation.violation_minutes} minutes`
+          `Order ${orderId} marked as SLA violated: All SKUs violated. Max violation: ${slaCheck.violation.violation_minutes} minutes`
         );
 
-        responseData.slaViolation = violationRecord;
-        responseData.message += `. SLA violation detected: ${slaCheck.violation.violation_minutes} minutes late.`;
+        responseData.slaViolation = {
+          orderViolated: true,
+          allSkusViolated: true,
+          violationMinutes: slaCheck.violation.violation_minutes,
+          message: `All SKUs violated SLA. Max violation: ${slaCheck.violation.violation_minutes} minutes late.`
+        };
+        responseData.message += ` Order marked as SLA violated (all SKUs violated).`;
       } catch (violationError) {
-        logger.error("Failed to record SLA violation:", violationError);
+        logger.error("Failed to update order with SLA violation:", violationError);
         responseData.warning =
-          "Order packed successfully but failed to record SLA violation";
+          "SKU violations recorded but failed to update order SLA status";
       }
+    } else if (slaCheck.skuViolations && slaCheck.skuViolations.length > 0) {
+      // Partial violation - some SKUs violated but not all
+      responseData.slaViolation = {
+        orderViolated: false,
+        allSkusViolated: false,
+        partialViolation: true,
+        violatedSkus: slaCheck.skuViolations.length,
+        message: slaCheck.message || `Partial violation: ${slaCheck.skuViolations.length} SKU(s) violated but order not marked as violated.`
+      };
     }
 
     return sendSuccess(res, responseData, responseData.message);
@@ -1658,29 +1716,61 @@ exports.batchUpdateStatus = async (req, res) => {
             const packedAt = new Date();
             updateData["timestamps.packedAt"] = packedAt;
 
-            // Check for SLA violation when marking as packed
+            // Check for SLA violation when marking as packed (SKU-based)
             const currentOrder = await Order.findById(orderId);
             if (currentOrder) {
               const slaCheck = await checkSLAViolationOnPacking(
                 currentOrder,
                 packedAt
               );
-              if (slaCheck.hasViolation && slaCheck.violation) {
+              
+              // Record SKU-level violations
+              if (slaCheck.skuViolations && slaCheck.skuViolations.length > 0) {
                 try {
-                  slaViolation = await recordSLAViolation(slaCheck.violation);
+                  const violationDataArray = slaCheck.skuViolations.map(sv => sv.violation);
+                  const violationRecords = await recordSKUViolations(violationDataArray);
+                  logger.info(
+                    `Recorded ${violationRecords.length} SKU-level SLA violations for order ${orderId}`
+                  );
+                } catch (violationError) {
+                  logger.error(
+                    `Failed to record SKU-level SLA violations for order ${orderId}:`,
+                    violationError
+                  );
+                }
+              }
+
+              // Only mark order as violated if ALL SKUs are violated
+              if (slaCheck.hasViolation && slaCheck.violation && slaCheck.allSkusViolated) {
+                try {
                   await updateOrderWithSLAViolation(
                     orderId,
                     slaCheck.violation
                   );
+                  slaViolation = {
+                    orderViolated: true,
+                    allSkusViolated: true,
+                    violationMinutes: slaCheck.violation.violation_minutes,
+                    message: `All SKUs violated SLA. Max violation: ${slaCheck.violation.violation_minutes} minutes`
+                  };
                   logger.info(
-                    `SLA violation recorded for order ${orderId}: ${slaCheck.violation.violation_minutes} minutes`
+                    `Order ${orderId} marked as SLA violated: All SKUs violated. Max violation: ${slaCheck.violation.violation_minutes} minutes`
                   );
                 } catch (violationError) {
                   logger.error(
-                    `Failed to record SLA violation for order ${orderId}:`,
+                    `Failed to update order with SLA violation for order ${orderId}:`,
                     violationError
                   );
                 }
+              } else if (slaCheck.skuViolations && slaCheck.skuViolations.length > 0) {
+                // Partial violation
+                slaViolation = {
+                  orderViolated: false,
+                  allSkusViolated: false,
+                  partialViolation: true,
+                  violatedSkus: slaCheck.skuViolations.length,
+                  message: `Partial violation: ${slaCheck.skuViolations.length} SKU(s) violated but order not marked as violated.`
+                };
               }
             }
           }
@@ -2477,29 +2567,87 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    let dealerFound = false;
+    // Find SKUs mapped to this dealer
+    const dealerMappings = order.dealerMapping.filter(
+      (mapping) => mapping.dealerId.toString() === dealerId
+    );
 
+    if (dealerMappings.length === 0) {
+      return res.status(400).json({ 
+        error: `No SKUs found mapped to dealer ${dealerId}` 
+      });
+    }
+
+    const packedAt = new Date();
+    const dealerSkus = dealerMappings.map(m => m.sku);
+    let dealerSkuViolations = [];
+
+    // Mark each SKU mapped to this dealer as packed
+    for (const sku of dealerSkus) {
+      try {
+        await updateSkuStatus(orderId, sku, "Packed", {
+          timestamps: {
+            packedAt: packedAt,
+          },
+        });
+      } catch (error) {
+        logger.error(`Failed to mark SKU ${sku} as packed:`, error);
+      }
+    }
+
+    // Update dealerMapping status for this dealer
     order.dealerMapping = order.dealerMapping.map((mapping) => {
       if (mapping.dealerId.toString() === dealerId) {
-        dealerFound = true;
         return { ...mapping.toObject(), status: "Packed" };
       }
       return mapping;
     });
 
+    // Check SLA violations only for SKUs mapped to this dealer
+    const orderForSlaCheck = await Order.findById(orderId);
+    for (const sku of dealerSkus) {
+      const slaCheck = await checkSLAViolationOnPacking(orderForSlaCheck, packedAt, sku);
+      if (slaCheck.hasViolation && slaCheck.violation) {
+        dealerSkuViolations.push({
+          sku: sku,
+          violation: slaCheck.violation
+        });
+      }
+    }
 
+    // Record SKU-level violations for this dealer's SKUs
+    if (dealerSkuViolations.length > 0) {
+      try {
+        const violationDataArray = dealerSkuViolations.map(sv => sv.violation);
+        const violationRecords = await recordSKUViolations(violationDataArray);
+        logger.info(
+          `Recorded ${violationRecords.length} SKU-level SLA violations for dealer ${dealerId} in order ${orderId}`
+        );
+      } catch (violationError) {
+        logger.error("Failed to record SKU-level SLA violations:", violationError);
+      }
+    }
 
-    const allPacked = order.dealerMapping.every(
+    // Check if all dealers are packed
+    const allDealersPacked = order.dealerMapping.every(
       (mapping) => mapping.status === "Packed"
+    );
+
+    // Check if all SKUs are packed
+    const orderForStatusCheck = await Order.findById(orderId);
+    const allSkusPacked = orderForStatusCheck.skus.every(
+      (sku) => sku.tracking_info?.status === "Packed" || 
+               sku.tracking_info?.status === "Delivered" ||
+               sku.tracking_info?.status === "Cancelled"
     );
 
     // Visibility logs for Borzo creation criteria
     console.log(
-      `[BORZO] Dealer packed update: orderId=${order.orderId}, dealerId=${dealerId}, allPacked=${allPacked}, delivery_type=${order.delivery_type || "N/A"}`
+      `[BORZO] Dealer packed update: orderId=${order.orderId}, dealerId=${dealerId}, allDealersPacked=${allDealersPacked}, allSkusPacked=${allSkusPacked}, delivery_type=${order.delivery_type || "N/A"}`
     );
-    if (!allPacked) {
+    if (!allDealersPacked || !allSkusPacked) {
       console.log(
-        `[BORZO] Skipping Borzo creation for order ${order.orderId}: not all dealers are packed`
+        `[BORZO] Skipping Borzo creation for order ${order.orderId}: not all dealers/SKUs are packed`
       );
     }
     if (!order.delivery_type) {
@@ -2508,29 +2656,68 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
       );
     }
 
-    if (allPacked) {
-      const packedAt = new Date();
+    // Only mark order as fully packed if all dealers AND all SKUs are packed
+    if (allDealersPacked && allSkusPacked) {
       order.status = "Packed";
       order.timestamps.packedAt = packedAt;
 
-      // Check for SLA violation when order is marked as packed
-      const slaCheck = await checkSLAViolationOnPacking(order, packedAt);
-      if (slaCheck.hasViolation && slaCheck.violation) {
+      // Check SLA violations for ALL SKUs in the order (now that all are packed)
+      const allSkusSlaCheck = await checkSLAViolationOnPacking(orderForStatusCheck, null);
+
+      // Record any additional SKU-level violations that weren't caught earlier
+      if (allSkusSlaCheck.skuViolations && allSkusSlaCheck.skuViolations.length > 0) {
         try {
-          const violationRecord = await recordSLAViolation(slaCheck.violation);
-          await updateOrderWithSLAViolation(orderId, slaCheck.violation);
+          // Check which violations are new (not already recorded)
+          const existingViolations = await SLAViolation.find({
+            order_id: order._id,
+            sku: { $in: allSkusSlaCheck.skuViolations.map(sv => sv.sku) },
+            resolved: false
+          });
+          const existingSkuSet = new Set(existingViolations.map(v => v.sku?.toString()));
+          
+          const newViolations = allSkusSlaCheck.skuViolations.filter(
+            sv => !existingSkuSet.has(sv.sku)
+          );
+
+          if (newViolations.length > 0) {
+            const violationDataArray = newViolations.map(sv => sv.violation);
+            await recordSKUViolations(violationDataArray);
+            logger.info(
+              `Recorded ${newViolations.length} additional SKU-level SLA violations for order ${orderId}`
+            );
+          }
+        } catch (violationError) {
+          logger.error("Failed to record additional SKU-level SLA violations:", violationError);
+        }
+      }
+
+      // Only mark order as violated if ALL SKUs are violated
+      if (allSkusSlaCheck.hasViolation && allSkusSlaCheck.violation && allSkusSlaCheck.allSkusViolated) {
+        try {
+          await updateOrderWithSLAViolation(orderId, allSkusSlaCheck.violation);
           logger.info(
-            `SLA violation recorded for order ${orderId}: ${slaCheck.violation.violation_minutes} minutes`
+            `Order ${orderId} marked as SLA violated: All SKUs violated. Max violation: ${allSkusSlaCheck.violation.violation_minutes} minutes`
           );
 
           // Add SLA violation info to response
           order.slaViolation = {
-            violationMinutes: slaCheck.violation.violation_minutes,
-            message: `SLA violation detected: ${slaCheck.violation.violation_minutes} minutes late`,
+            orderViolated: true,
+            allSkusViolated: true,
+            violationMinutes: allSkusSlaCheck.violation.violation_minutes,
+            message: `SLA violation detected: All SKUs violated. Max violation: ${allSkusSlaCheck.violation.violation_minutes} minutes late`,
           };
         } catch (violationError) {
-          logger.error("Failed to record SLA violation:", violationError);
+          logger.error("Failed to update order with SLA violation:", violationError);
         }
+      } else if (allSkusSlaCheck.skuViolations && allSkusSlaCheck.skuViolations.length > 0) {
+        // Partial violation
+        order.slaViolation = {
+          orderViolated: false,
+          allSkusViolated: false,
+          partialViolation: true,
+          violatedSkus: allSkusSlaCheck.skuViolations.length,
+          message: `Partial violation: ${allSkusSlaCheck.skuViolations.length} SKU(s) violated but order not marked as violated.`
+        };
       }
     }
 
@@ -2636,12 +2823,10 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
           points: borzoPointsUsed,
         };
 
-        // Call appropriate Borzo function based on delivery_type
         if (order.delivery_type.toLowerCase() === "standard") {
           console.log(
             `[BORZO] Creating instant Borzo order for ${order.orderId}`
           );
-          // Create instant order
           const instantReq = { body: { ...orderData, type: "standard" } };
           const instantRes = {
             status: (code) => ({
@@ -2714,12 +2899,11 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
           console.log(
             `[BORZO] Creating end-of-day Borzo order for ${order.orderId}`
           );
-          // Create end of day order
           const endofdayReq = {
             body: {
               ...orderData,
               type: "endofday",
-              vehicle_type_id: "8", // Default vehicle type
+              vehicle_type_id: "8", 
             },
           };
           const endofdayRes = {
@@ -2727,13 +2911,11 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
               json: async (data) => {
                 if (code === 200) {
                   borzoOrderResponse = { type: "endofday", data };
-                  // Store Borzo order ID in the order and SKUs
                   if (data.order_id) {
                     console.log(
                       `Storing Borzo order ID: ${data.order_id} for order: ${order.orderId}`
                     );
 
-                    // Update order-level tracking
                     order.order_track_info = {
                       ...order.order_track_info,
                       borzo_order_id: data.order_id.toString(),
@@ -2741,7 +2923,6 @@ exports.markDealerPackedAndUpdateOrderStatus = async (req, res) => {
                       borzo_tracking_number: data.tracking_number || order.order_track_info?.borzo_tracking_number,
                     };
 
-                    // Update SKU-level tracking
                     if (order.skus && order.skus.length > 0) {
                       order.skus.forEach((sku, index) => {
                         if (!sku.tracking_info) {
@@ -4201,8 +4382,10 @@ exports.markSkuAsPacked = async (req, res) => {
       timestamp: new Date(),
     });
 
-    // Check for SLA violation (existing logic)
-    const slaCheck = await checkSLAViolationOnPacking(updatedOrder, new Date());
+    // Check for SLA violation for this specific SKU
+    const skuItem = updatedOrder.skus.find(s => s.sku === sku);
+    const skuPackedAt = skuItem?.tracking_info?.timestamps?.packedAt || new Date();
+    const slaCheck = await checkSLAViolationOnPacking(updatedOrder, skuPackedAt, sku);
 
     let responseData = {
       order: updatedOrder,
@@ -4210,13 +4393,33 @@ exports.markSkuAsPacked = async (req, res) => {
       message: `SKU ${sku} marked as packed successfully`,
     };
 
-    // If SLA violation detected, record it
+    // Record SKU-level violation if detected
     if (slaCheck.hasViolation && slaCheck.violation) {
       try {
         const violationRecord = await recordSLAViolation(slaCheck.violation);
-        await updateOrderWithSLAViolation(orderId, slaCheck.violation);
-
-        responseData.slaViolation = violationRecord;
+        
+        // Check if all SKUs are now violated (to determine if order should be marked as violated)
+        const allSkusCheck = await checkSLAViolationOnPacking(updatedOrder, null);
+        
+        // Only mark order as violated if ALL SKUs are violated
+        if (allSkusCheck.hasViolation && allSkusCheck.allSkusViolated) {
+          await updateOrderWithSLAViolation(orderId, allSkusCheck.violation);
+          responseData.slaViolation = {
+            skuViolated: true,
+            orderViolated: true,
+            allSkusViolated: true,
+            violation: violationRecord,
+            message: `SKU ${sku} violated SLA and all SKUs are now violated. Order marked as SLA violated.`
+          };
+        } else {
+          responseData.slaViolation = {
+            skuViolated: true,
+            orderViolated: false,
+            allSkusViolated: false,
+            violation: violationRecord,
+            message: `SKU ${sku} violated SLA but order not marked as violated (not all SKUs violated).`
+          };
+        }
         responseData.message += `. SLA violation detected: ${slaCheck.violation.violation_minutes} minutes late.`;
 
         // Update the audit log with SLA violation info
