@@ -51,10 +51,10 @@ exports.createVariant = async (req, res) => {
     });
 
     if (existingVariant) {
-      if (existingVariant.variant_name === variant_name) {
-        logger.warn(`Duplicate variant name attempted: ${variant_name}`);
-        return sendError(res, `Variant with name "${variant_name}" already exists`, 409);
-      }
+      // if (existingVariant.variant_name === variant_name) {
+      //   logger.warn(`Duplicate variant name attempted: ${variant_name}`);
+      //   return sendError(res, `Variant with name "${variant_name}" already exists`, 409);
+      // }
       if (existingVariant.variant_code === variant_code) {
         logger.warn(`Duplicate variant code attempted: ${variant_code}`);
         return sendError(res, `Variant with code "${variant_code}" already exists`, 409);
@@ -170,11 +170,11 @@ exports.getVariantsByModel = async (req, res) => {
     const cacheKey = `variants:model:${modelId}`;
 
     /* 1️⃣  Try cache (uses read-only Redis client) */
-    const cached = await cacheGet(cacheKey);
-    if (cached) {
-      logger.info(`🔁 variants:model:${modelId}  – served from cache`);
-      return sendSuccess(res, cached);
-    }
+    // const cached = await cacheGet(cacheKey);
+    // if (cached) {
+    //   logger.info(`🔁 variants:model:${modelId}  – served from cache`);
+    //   return sendSuccess(res, cached);
+    // }
 
     /* 2️⃣  Hit MongoDB */
     const variants = await Variant.find({ model: modelId })
@@ -190,7 +190,7 @@ exports.getVariantsByModel = async (req, res) => {
     }
 
     /* 4️⃣  Cache the fresh list (writer client) – 1 h TTL */
-    await cacheSet(cacheKey, variants, 60 * 60);
+    // await cacheSet(cacheKey, variants, 60 * 60);
 
     logger.info(`✅ variants:model:${modelId}  – fetched from Mongo`);
     return sendSuccess(res, variants, "Variants fetched successfully");

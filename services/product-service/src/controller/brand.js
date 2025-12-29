@@ -34,10 +34,10 @@ exports.createBrand = async (req, res) => {
     });
 
     if (existingBrand) {
-      if (existingBrand.brand_name === brand_name) {
-        logger.warn(`Duplicate brand name attempted: ${brand_name}`);
-        return sendError(res, `Brand with name "${brand_name}" already exists`, 409);
-      }
+      // if (existingBrand.brand_name === brand_name) {
+      //   logger.warn(`Duplicate brand name attempted: ${brand_name}`);
+      //   return sendError(res, `Brand with name "${brand_name}" already exists`, 409);
+      // }
       if (existingBrand.brand_code === brand_code) {
         logger.warn(`Duplicate brand code attempted: ${brand_code}`);
         return sendError(res, `Brand with code "${brand_code}" already exists`, 409);
