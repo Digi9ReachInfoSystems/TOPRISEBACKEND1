@@ -4,7 +4,7 @@ const variantSchema = new mongoose.Schema({
   variant_name: {
     type: String,
     required: true,
-    unique: true,
+    // unique: true,
   },
   variant_code: {
     type: String,
