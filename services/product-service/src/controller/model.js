@@ -34,10 +34,10 @@ exports.createModel = async (req, res) => {
     });
 
     if (existingModel) {
-      if (existingModel.model_name === model_name) {
-        logger.warn(`Duplicate model name attempted: ${model_name}`);
-        return sendError(res, `Model with name "${model_name}" already exists`, 409);
-      }
+      // if (existingModel.model_name === model_name) {
+      //   logger.warn(`Duplicate model name attempted: ${model_name}`);
+      //   return sendError(res, `Model with name "${model_name}" already exists`, 409);
+      // }
       if (existingModel.model_code === model_code) {
         logger.warn(`Duplicate model code attempted: ${model_code}`);
         return sendError(res, `Model with code "${model_code}" already exists`, 409);
