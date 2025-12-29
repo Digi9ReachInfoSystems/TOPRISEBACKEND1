@@ -14,7 +14,7 @@ const PRODUCT_SERVICE_URL =
 // User service URL for fetching user details
 const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || "http://user-service:5001/api/users";
-
+const mongoose = require("mongoose"); 
 /**
  * 1. Create Return Request - Customer initiates return
  */
@@ -598,65 +598,125 @@ exports.getReturnRequest = async (req, res) => {
 /**
  * Get Return Requests with filters
  */
+
 exports.getReturnRequests = async (req, res) => {
   try {
     const {
       customerId,
       status,
-      orderId,
-      page = 1,
-      limit = 10,
+      dealerId,
+      refundMethod,
       startDate,
       endDate,
-      refundMethod,
-      dealerId,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = "requestedAt",
+      sortOrder = "desc",
     } = req.query;
 
-    const filter = {};
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
 
-    if (customerId) filter.customerId = customerId;
-    if (status) filter.returnStatus = status;
-    if (orderId) filter.orderId = orderId;
-    if (dealerId) filter.dealerId = dealerId;
+    /* ---------------- BASE FILTER ---------------- */
+    const baseFilter = {};
+    if (customerId) baseFilter.customerId = customerId;
+    if (status) baseFilter.returnStatus = status;
+    if (dealerId) baseFilter.dealerId = dealerId;
+    if (refundMethod) baseFilter["refund.refundMethod"] = refundMethod;
 
     if (startDate && endDate) {
-      filter["timestamps.requestedAt"] = {
+      baseFilter["timestamps.requestedAt"] = {
         $gte: new Date(startDate),
         $lte: new Date(endDate),
       };
     }
-    if(refundMethod) filter['refund.refundMethod']=refundMethod;
 
-    const skip = (page - 1) * limit;
+    /* ---------------- SORT MAP ---------------- */
+    const SORT_MAP = {
+      requestedAt: "timestamps.requestedAt",
+      createdAt: "createdAt",
+      returnStatus: "returnStatus",
+      sku: "sku",
+      orderId: "order.orderId",
+      customerName: "order.customerDetails.name",
+    };
 
-    const returnRequests = await Return.find(filter)
-      .populate("orderId", )
-      .populate("refund.refund_id")
-      // Note: dealerId populate removed to avoid "Schema hasn't been registered for model 'Dealer'" error
-      .sort({ "timestamps.requestedAt": -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    const sortField = SORT_MAP[sortBy] || "timestamps.requestedAt";
+    const sortDirection = sortOrder === "asc" ? 1 : -1;
 
-    const total = await Return.countDocuments(filter);
+    /* ---------------- PIPELINE ---------------- */
+    const pipeline = [
+      { $match: baseFilter },
+
+      {
+        $lookup: {
+          from: "orders",
+          localField: "orderId",
+          foreignField: "_id",
+          as: "order",
+        },
+      },
+      { $unwind: { path: "$order", preserveNullAndEmptyArrays: true } },
+    ];
+
+    /* ---------------- SEARCH ---------------- */
+    if (search) {
+      const searchConditions = [
+        { sku: { $regex: search, $options: "i" } },
+        { returnReason: { $regex: search, $options: "i" } },
+        { "order.orderId": { $regex: search, $options: "i" } },
+        { "order.customerDetails.name": { $regex: search, $options: "i" } },
+      ];
+
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        searchConditions.push({ _id: new mongoose.Types.ObjectId(search) });
+      }
+
+      pipeline.push({ $match: { $or: searchConditions } });
+    }
+
+    /* ---------------- FACET ---------------- */
+    pipeline.push({
+      $facet: {
+        data: [
+          { $sort: { [sortField]: sortDirection } },
+          { $skip: skip },
+          { $limit: limitNumber },
+        ],
+        totalCount: [{ $count: "count" }],
+      },
+    });
+
+    /* ---------------- EXECUTE ---------------- */
+    const result = await Return.aggregate(pipeline);
+
+    const returnRequests = result[0].data;
+    const total = result[0].totalCount[0]?.count || 0;
 
     return sendSuccess(
       res,
       {
         returnRequests,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: pageNumber,
+          limit: limitNumber,
           total,
-          pages: Math.ceil(total / limit),
+          totalPages: Math.ceil(total / limitNumber),
+          hasNextPage: pageNumber < Math.ceil(total / limitNumber),
+          hasPreviousPage: pageNumber > 1,
         },
       },
       "Return requests fetched successfully"
     );
   } catch (error) {
-    logger.error("Get return requests error:", error);
-    return sendError(res, "Failed to get return requests");
+    logger.error("❌ Error fetching return requests:", error);
+    return sendError(res, "Failed to fetch return requests", 500);
   }
 };
+
+
 
 /**
  * Get Return Requests for specific user with full population
