@@ -9,6 +9,8 @@ services:
       - product-service
     networks:
       - app-network
+    env_file:
+      - ./api-gateway/.env.production
 
   user-service:
     platform: linux/amd64
