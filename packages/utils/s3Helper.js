@@ -9,15 +9,16 @@ const path = require("path");
 
 // Load from env or config
 // const REGION = process.env.AWS_REGION;
-const REGION = "eu-north-1"; // Example region, replace with your actual region
+const REGION = process.env.AWS_REGION;// Example region, replace with your actual region
 // const BUCKET = process.env.AWS_BUCKET_NAME;
-const BUCKET = "toprisebucket";
+const BUCKET = process.env.AWS_BUCKET_NAME;
+
 
 const s3 = new S3Client({
   region: REGION,
   credentials: {
-    accessKeyId: "AKIAXVDSWFZ2PGB4F2PE",
-    secretAccessKey: "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",
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     // secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
@@ -27,13 +28,17 @@ const s3 = new S3Client({
 const uploadFile = async (buffer, originalName, mimeType, folder = "") => {
   const ext = path.extname(originalName);
   const key = `${folder}/${uuidv4()}${ext}`;
+//   console.log("Using S3 Bucket:", BUCKET);
+// console.log("Using S3 Region:", REGION);
+// console.log("Using AWS Access Key ID:", process.env.AWS_ACCESS_KEY_ID ? "****" : "Not Set");
+// console.log("Using AWS Secret Access Key:", process.env.AWS_SECRET_ACCESS_KEY ? "****" : "Not Set");
 
   const uploadParams = {
     Bucket: BUCKET,
     Key: key,
     Body: buffer,
     ContentType: mimeType,
-    ACL: "public-read", // 👈 make file publicly accessible
+    // ACL: "public-read", // 👈 make file publicly accessible
   };
 
   await s3.send(new PutObjectCommand(uploadParams));

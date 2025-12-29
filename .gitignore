@@ -6,3 +6,5 @@
 /docker-volumes
 /docker-compose.yaml
 
+api-gateway/.env
+api-gateway/.env.*
