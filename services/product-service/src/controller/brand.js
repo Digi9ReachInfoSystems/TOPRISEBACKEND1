@@ -28,7 +28,7 @@ exports.createBrand = async (req, res) => {
     // Check for duplicate brand_name or brand_code
     const existingBrand = await Brand.findOne({
       $or: [
-        { brand_name: brand_name },
+        // { brand_name: brand_name },
         { brand_code: brand_code }
       ]
     });

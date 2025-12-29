@@ -5,7 +5,7 @@ const modelSchema = new mongoose.Schema({
   model_name: {
     type: String,
     required: true,
-    unique: true,
+    // unique: true,
   },
   model_code: {
     type: String,

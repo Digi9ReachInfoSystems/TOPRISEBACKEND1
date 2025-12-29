@@ -4,7 +4,7 @@ const brandSchema = new mongoose.Schema({
   brand_name: {
     type: String,
     required: true,
-    unique: true,
+    // unique: true,
   },
   featured_brand: {
     type: Boolean,

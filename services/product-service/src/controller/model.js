@@ -28,7 +28,7 @@ exports.createModel = async (req, res) => {
     // Check for duplicate model_name or model_code
     const existingModel = await Model.findOne({
       $or: [
-        { model_name: model_name },
+        // { model_name: model_name },
         { model_code: model_code }
       ]
     });

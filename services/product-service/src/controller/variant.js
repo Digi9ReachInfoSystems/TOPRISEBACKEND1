@@ -45,7 +45,7 @@ exports.createVariant = async (req, res) => {
     // Check for duplicate variant_name or variant_code
     const existingVariant = await Variant.findOne({
       $or: [
-        { variant_name: variant_name },
+        // { variant_name: variant_name },
         { variant_code: variant_code }
       ]
     });
