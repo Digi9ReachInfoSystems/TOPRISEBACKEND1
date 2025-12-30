@@ -23,6 +23,7 @@ exports.createBrand = async (req, res) => {
       updated_by,
       status,
       preview_video,
+      featured_brand,
     } = req.body;
 
     // Check for duplicate brand_name or brand_code
@@ -64,6 +65,7 @@ exports.createBrand = async (req, res) => {
       updated_by,
       brand_logo,
       preview_video,
+      featured_brand
       // status,
     });
 
@@ -169,6 +171,7 @@ exports.updateBrand = async (req, res) => {
       status,
       updated_by,
       preview_video,
+      featured_brand,
     } = req.body;
 
     // Check if brand exists before updating
@@ -190,6 +193,7 @@ exports.updateBrand = async (req, res) => {
       updated_by,
       preview_video,
       updated_at: new Date(),
+      featured_brand
     };
 
     if (req.file) {
