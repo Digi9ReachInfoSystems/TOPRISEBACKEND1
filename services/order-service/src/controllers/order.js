@@ -426,7 +426,7 @@ exports.createOrder = async (req, res) => {
           sku: s.sku,
           hsn: productData?.hsn_code || "N/A",
           mpn: productData?.manufacturer_part_name || "N/A",
-          unitPrice: s.selling_price,
+          unitPrice: productData?.selling_price,
           quantity: s.quantity,
           taxRate: `${igst || 0}%`,
           cgstPercent: 0,
