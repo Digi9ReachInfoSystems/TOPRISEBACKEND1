@@ -7846,7 +7846,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
           await exports.createOrderBorzoInstantUpdated(instantReq, instantRes);
         } else if (order.delivery_type.toLowerCase() === "endofday") {
           console.log(
-            `[BORZO] Creating end-of-day Borzo order for ${order.orderId}`
+            `[BORZO] Creating end-of-day Borzo order for  ${order.orderId}`
           );
           // Create end of day order
           const endofdayReq = {
@@ -7947,7 +7947,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
     } else if (order.delivery_type == "endofday") {
       try {
         console.log(
-          `[BORZO] Attempting Borzo order creation for ${order.orderId} with delivery_type=${order.delivery_type}`
+          `[BORZO] Attempting Borzo order creation for endofday ${order.orderId} with delivery_type=${order.delivery_type}`
         );
         const authHeader = req.headers.authorization;
         let pickupDealerId = dealerId || null;
@@ -8092,7 +8092,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
 
                     if (order.skus && order.skus.length > 0) {
                       order.skus.forEach((sku, index) => {
-                        if (sku.sku === skuList.includes(sku.sku)) {
+                        if (skuList.includes(sku.sku)) {
 
 
                           if (!sku.tracking_info) {
@@ -8114,7 +8114,8 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
                           sku.tracking_info.borzo_last_updated = new Date();
                           sku.tracking_info.amount_collected = order.paymentType === "COD" ? false : true;
                           sku.tracking_info.borzo_weight = weight_object[sku.sku] || 0.00;
-                          sku.return_info.is_returnable = isProductsReturnable[sku.sku];
+                          // sku.return_info.is_returnable = isProductsReturnable[sku.sku];
+                          sku.return_info.is_returnable = true;
                           sku.return_info.return_window_days = days;
                           sku.markAsPacked = true;
                           if (forcePacking) {
