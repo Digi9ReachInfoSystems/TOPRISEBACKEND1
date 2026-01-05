@@ -146,6 +146,11 @@ const dealerSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  serviceable_pincodes: [
+    {
+      type: String,
+    },
+  ],
   permission:{
     readPermissions: {
       isEnabled: {

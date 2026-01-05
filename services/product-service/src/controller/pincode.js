@@ -815,4 +815,33 @@ exports.getPincodeMetaData = async (req, res) => {
   }
 };
 
+exports.getPincodeByPincode = async (req, res) => {
+  try {
+    const { pincode } = req.params;
 
+    const pincodeData = await Pincode.findOne({ pincode });
+    if (!pincodeData) {
+      return sendError(res, "Pincode not found", 404);
+    }
+
+    logger.info(`✅ Pincode fetched: ${pincode}`);
+    return sendSuccess(res, pincodeData, "Pincode fetched successfully");
+
+  } catch (error) {
+    logger.error("❌ Get pincode by pincode error:", error);
+    return sendError(res, "Failed to fetch pincode", 500);
+  }
+};
+
+exports.getAllPincodesNoPagination = async (req, res) => {
+  try {
+    const pincodes = await Pincode.find({}).lean();
+
+    logger.info(`✅ All pincodes fetched: ${pincodes.length}`);
+    return sendSuccess(res, pincodes, "All pincodes fetched successfully");
+
+  } catch (error) {
+    logger.error("❌ Get all pincodes no pagination error:", error);
+    return sendError(res, "Failed to fetch pincodes", 500);
+  }
+}
