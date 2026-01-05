@@ -114,4 +114,10 @@ router.get(
   authorizeRoles("Super-admin", "Fulfillment-Admin", "Inventory-Admin", "Inventory-Staff", "Analytics-Admin"),
   pincodeController.getPincodeMetaData
 )
+
+router.get("/get/serviceable/:pincode",
+  pincodeController.getPincodeByPincode
+)
+
+router.get("/get/all",pincodeController.getAllPincodesNoPagination)
 module.exports = router;

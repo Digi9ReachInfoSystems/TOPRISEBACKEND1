@@ -29,6 +29,10 @@ const DocumentUploadSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
+        vehicle_details: {
+            type: String,
+            default: "",
+        },
         customer_details: {
             user_id: {
                 type: String,

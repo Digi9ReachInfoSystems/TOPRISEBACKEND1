@@ -1238,4 +1238,9 @@ router.get(
   userController.getEmployeesForAssignment
 )
 
+router.get(
+  "/get/servicable/pincodes/:dealerId",
+  userController.getDealerPincodes
+)
+
 module.exports = router;

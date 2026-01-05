@@ -490,6 +490,7 @@ exports.createDealer = async (req, res) => {
       SLA_type,
       dealer_dispatch_time,
       onboarding_date,
+      serviceable_pincodes,
       remarks,
     } = req.body;
 
@@ -522,6 +523,7 @@ exports.createDealer = async (req, res) => {
       SLA_type,
       dealer_dispatch_time,
       onboarding_date,
+      serviceable_pincodes,
       remarks,
     });
     //update assigned employee with dealer id make sure noy to duplicate assigned dealers
@@ -1291,10 +1293,10 @@ exports.updateEmailOrNameUser = async (req, res) => {
     const { email, username } = req.body;
 
     //validate emailm using regular expression
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (email && !emailRegex.test(email)) {
-      return sendError(res, "Invalid email format", 400);
-    }
+    // const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // if (email && !emailRegex.test(email)) {
+    //   return sendError(res, "Invalid email format", 400);
+    // }
 
 
     // const emailExists = await User.findOne({ email });
@@ -2483,6 +2485,28 @@ async function getEmployeeIdByEmployeeId(empId) {
 
   return employee._id;
 }
+const getServiceablePincodeId = async (pincode, authHeader) => {
+  try {
+    const res = await axios.get(
+      `http://product-service:5001/api/pincodes/get/serviceable/${pincode}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader || "",
+        },
+      }
+    );
+
+    if (res.data?.success && res.data?.data?._id) {
+      return res.data.data._id.toString(); // ✅ store as string
+    }
+
+    throw new Error(`Pincode not serviceable: ${pincode}`);
+  } catch (err) {
+    throw new Error(`Failed to fetch pincode ${pincode}: ${err.message}`);
+  }
+};
+
 exports.createDealersBulk = async (req, res) => {
   try {
     const results = [];
@@ -2598,6 +2622,34 @@ exports.createDealersBulk = async (req, res) => {
             }
           }
         }
+        /** -------------------------------  
+ *  STEP 5.5: SERVICEABLE PINCODES
+ -------------------------------- */
+let serviceablePincodeIds = [];
+
+if (row.serviceable_pincodes) {
+  const pincodes = row.serviceable_pincodes
+    .split("|")
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  console.log("Serviceable pincodes:", pincodes);
+
+  for (const pincode of pincodes) {
+    try {
+      const pincodeId = await getServiceablePincodeId(
+        pincode,
+        req.headers.authorization
+      );
+
+      serviceablePincodeIds.push(pincodeId);
+      console.log(`✔ Pincode mapped: ${pincode} → ${pincodeId}`);
+    } catch (err) {
+      console.error(`❌ Pincode mapping failed for ${pincode}`, err.message);
+      throw err; // ❗ fail this row
+    }
+  }
+}
 
         /** -------------------------------  
          *  STEP 6: CREATE DEALER  
@@ -2624,6 +2676,7 @@ exports.createDealersBulk = async (req, res) => {
 
           /** ✔ Updated field */
           brands_allowed: mappedBrands,
+          serviceable_pincodes: serviceablePincodeIds,
 
           upload_access_enabled: row.upload_access_enabled?.toLowerCase() === "true",
           default_margin: parseFloat(row.default_margin) || 0,
@@ -5194,5 +5247,74 @@ exports.getEmployeesForAssignment = async (req, res) => {
   } catch (err) {
     logger.error(`Get employees for assignment error: ${err.message}`);
     sendError(res, err);
+  }
+};
+
+exports.getDealerPincodes = async (req, res) => {
+  try {
+    const { dealerId } = req.params;
+
+    const dealer = await Dealer.findById(dealerId).lean();
+
+    if (!dealer) {
+      return res.status(404).json({
+        success: false,
+        message: "Dealer not found",
+      });
+    }
+    //getAllPincodes
+    const allPincodes=[];
+    try {
+    const res = await axios.get(
+      `http://product-service:5001/api/pincodes/get/all`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          // Authorization: authHeader || "",
+        },
+      }
+    );
+
+    if (res.data?.success && res.data?.data) {
+      allPincodes.push(...res.data.data);
+    }
+
+  } catch (err) {
+    console.log(err);
+    throw new Error(`Failed to fetch pincode `,err);
+  }
+ 
+
+    // Convert string IDs → ObjectIds
+    const mappedPincodeObjectIds = (dealer.serviceable_pincodes || []).map(
+      id => new mongoose.Types.ObjectId(id)
+    );
+
+ 
+    const mappedPincodes =  allPincodes.filter(pincode =>
+      mappedPincodeObjectIds.some(
+        mappedId => mappedId.equals(pincode._id)
+      )
+    );
+
+    const unmappedPincodes = allPincodes.filter(pincode =>
+      !mappedPincodeObjectIds.some(
+        mappedId => mappedId.equals(pincode._id)
+      )
+    );
+
+    return res.json({
+      success: true,
+      mapped: mappedPincodes,
+      unmapped: unmappedPincodes,
+    });
+
+  } catch (err) {
+    console.error("Dealer pincode fetch error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
   }
 };

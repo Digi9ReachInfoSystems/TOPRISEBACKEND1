@@ -37,6 +37,7 @@ exports.createDocumentUpload = async (req, res) => {
             address,
             pincode,
             priority,
+            vehicle_details,
             estimated_order_value,
         } = req.body;
 
@@ -85,6 +86,7 @@ exports.createDocumentUpload = async (req, res) => {
                 address: address || "",
                 pincode: pincode || "",
             },
+            vehicle_details: vehicle_details || "",
             priority: priority || "Medium",
             estimated_order_value: estimated_order_value || 0,
             status: "Pending-Review",
