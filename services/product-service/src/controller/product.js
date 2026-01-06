@@ -8068,6 +8068,7 @@ exports.getAssignedDealersByPincode = async (req, res) => {
     console.log("availableDealer before filter", availableDealer);
     // console.log("availableDealer", availableDealer);
     availableDealer = availableDealer.filter(dealer => dealer !== null);
+    availableDealer = availableDealer.filter(dealer => dealer.serviceable_pincodes);
 
     // 2) Sort dealers by priority_override, then by quantity
     const sorted = (availableDealer || []).filter((d) => d.inStock).slice().sort((a, b) => {
