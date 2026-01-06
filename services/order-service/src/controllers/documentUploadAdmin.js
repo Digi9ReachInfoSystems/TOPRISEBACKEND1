@@ -680,6 +680,7 @@ exports.createOrderforPurchaseRequest = async (req, res) => {
                 dealerMapped: [],
             })),
             dealerMapping: [],
+            ordered_pincode: req.body.ordered_pincode || req.body.customerDetails?.pincode || "",
         };
 
         const newOrder = await Order.create(orderPayload);
