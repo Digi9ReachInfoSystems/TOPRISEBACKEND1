@@ -376,6 +376,10 @@ const formatDate = (date) => {
 exports.createOrder = async (req, res) => {
   try {
     const orderId = `ORD-${Date.now()}-${uuidv4().slice(0, 8)}`;
+    let validSKU=[];
+    if(req.body.skus && req.body.skus.length>0){
+      validSKU = req.body.skus.filter(sku => sku.is_available != false);
+    }
 
     const orderPayload = {
       orderId,
@@ -387,20 +391,21 @@ exports.createOrder = async (req, res) => {
       status: "Confirmed",
       timestamps: { createdAt: new Date() },
       // ensure skus have uppercase SKU and empty dealerMapping slots
-      skus: (req.body.skus || []).map((s) => ({
-        sku: String(s.sku).toUpperCase().trim(),
-        quantity: s.quantity,
-        productId: s.productId,
-        productName: s.productName,
-        selling_price: s.selling_price,
-        mrp: s.mrp,
-        mrp_gst_amount: s.mrp_gst_amount,
-        gst_percentage: s.gst_percentage,
-        gst_amount: s.gst_amount,
-        product_total: s.product_total,
-        totalPrice: s.totalPrice,
-        dealerMapped: [],
-      })),
+      // skus: (req.body.skus || []).map((s) => ({
+      //   sku: String(s.sku).toUpperCase().trim(),
+      //   quantity: s.quantity,
+      //   productId: s.productId,
+      //   productName: s.productName,
+      //   selling_price: s.selling_price,
+      //   mrp: s.mrp,
+      //   mrp_gst_amount: s.mrp_gst_amount,
+      //   gst_percentage: s.gst_percentage,
+      //   gst_amount: s.gst_amount,
+      //   product_total: s.product_total,
+      //   totalPrice: s.totalPrice,
+      //   dealerMapped: [],
+      // })),
+      skus:validSKU,
       dealerMapping: [],
       ordered_pincode: req.body.ordered_pincode || req.body.customerDetails?.pincode || "",
     };
