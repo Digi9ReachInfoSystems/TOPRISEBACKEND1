@@ -2967,6 +2967,7 @@ exports.editProductSingle = async (req, res) => {
         dealers_Ref: dealer.dealers_Ref,
         quantity_per_dealer: Number(dealer.quantity_per_dealer) || 0,
         dealer_margin: Number(dealer.dealer_margin) || 0,
+        dealer_priority_override: dealer.dealer_priority_override || 0,
         inStock: Number(dealer.quantity_per_dealer) > 0,
       }));
 
