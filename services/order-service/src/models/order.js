@@ -43,6 +43,7 @@ const OrderSchema = new mongoose.Schema(
         gst_amount: Number,
         product_total: Number,
         totalPrice: Number,
+        is_available: Boolean,
         dealerMapped: [
           {
             dealerId: mongoose.Schema.Types.ObjectId,
