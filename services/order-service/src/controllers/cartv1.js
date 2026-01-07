@@ -279,7 +279,12 @@ exports.addToCart = async (req, res) => {
 
     if (availableDealer.length == 0) {
       logger.error(`❌ Product not serviceable at pincode: ${pincode}`);
-      return sendError(res, `Product not serviceable at pincode: ${pincode}`, 400);
+      return sendSuccess(res, {
+        success: false,
+        productId,
+        serviceable: false,
+        message: `Product not serviceable at pincode: ${pincode}`,
+      }, "Product quantity updated successfully");
     }
 
     //check if any dealer services the pincode
@@ -560,7 +565,12 @@ exports.updateQuantity = async (req, res) => {
 
     if (availableDealer.length == 0) {
       logger.error(`❌ Product not serviceable at pincode: ${pincode}`);
-      return sendError(res, `Product not serviceable at pincode: ${pincode}`, 400);
+      return sendSuccess(res, {
+        success: false,
+        productId,
+        serviceable: false,
+        message: `Product not serviceable at pincode: ${pincode}`,
+      }, "Product quantity updated successfully");
     }
 
     //check if any dealer services the pincode
