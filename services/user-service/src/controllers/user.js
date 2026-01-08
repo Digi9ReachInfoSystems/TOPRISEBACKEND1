@@ -5318,3 +5318,44 @@ exports.getDealerPincodes = async (req, res) => {
     });
   }
 };
+
+
+exports.getDealersByServiceablePincode = async (req, res) => {
+  try {
+    const { pincode } = req.params;
+    const authHeader = req.headers.authorization;
+
+    if (!pincode) {
+      return res.status(400).json({
+        success: false,
+        message: "Pincode is required",
+      });
+    }
+
+    // 🔹 Step 1: Convert pincode → pincodeId
+    const pincodeId = await getServiceablePincodeId(pincode, authHeader);
+
+    // 🔹 Step 2: Find dealers
+    const dealers = await Dealer.find({
+      is_active: true,
+      serviceable_pincodes: pincodeId,
+    })
+      .select(
+        "dealerId legal_name trade_name GSTIN Address contact_person brands_allowed categories_allowed default_margin permission"
+      )
+      .sort({ created_at: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: dealers.length,
+      data: dealers,
+    });
+  } catch (error) {
+    console.error("Get dealers by pincode error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to fetch dealers",
+    });
+  }
+};

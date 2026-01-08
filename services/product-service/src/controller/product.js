@@ -7995,7 +7995,7 @@ exports.getDealerProductStockStats = async (req, res) => {
 exports.getAssignedDealersByPincode = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    const { id ,pincode} = req.params;
+    const { id, pincode } = req.params;
     if (!mongoose.isValidObjectId(id)) {
       return res
         .status(400)
@@ -8004,27 +8004,27 @@ exports.getAssignedDealersByPincode = async (req, res) => {
 
     // pincode details fetch function
     let pincodeDetails;
-        let pincodeId;
-        try {
-          const res = await axios.get(
-            `http://product-service:5001/api/pincodes/get/serviceable/${pincode}`,
-            {
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: authHeader || "",
-              },
-            }
-          );
-    
-          if (res.data?.success && res.data?.data?._id) {
-            pincodeId = res.data.data._id.toString(); // ✅ store as string
-            pincodeDetails = res.data.data;
-          }
-    
-        } catch (err) {
-          console.log(err);
-          // throw new Error(`Failed to fetch pincode ${pincode}: ${err.message}`);
+    let pincodeId;
+    try {
+      const res = await axios.get(
+        `http://product-service:5001/api/pincodes/get/serviceable/${pincode}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader || "",
+          },
         }
+      );
+
+      if (res.data?.success && res.data?.data?._id) {
+        pincodeId = res.data.data._id.toString(); // ✅ store as string
+        pincodeDetails = res.data.data;
+      }
+
+    } catch (err) {
+      console.log(err);
+      // throw new Error(`Failed to fetch pincode ${pincode}: ${err.message}`);
+    }
 
     // 1) Load product, projecting only the available_dealers field
     const product = await Product.findById(id)
@@ -8035,7 +8035,7 @@ exports.getAssignedDealersByPincode = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Product not found" });
     }
-     const productData = product.toObject ? product.toObject() : product;
+    const productData = product.toObject ? product.toObject() : product;
 
     let availableDealer = [];
     if (productData.available_dealers && productData.available_dealers.length > 0) {
@@ -8051,7 +8051,7 @@ exports.getAssignedDealersByPincode = async (req, res) => {
             }
           );
           const dealerData = res.data.data;
-         
+
           return {
             ...dealer,
             serviceable_pincodes: dealerData.serviceable_pincodes.includes(pincodeId.toString()) || false,
@@ -8107,5 +8107,236 @@ exports.getAssignedDealersByPincode = async (req, res) => {
   } catch (err) {
     console.error("getAssignedDealers error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+exports.getProductsByFiltersForPurchaseOrder = async (req, res) => {
+  try {
+    const {
+      pincode, // ✅ NEW
+      brand,
+      category,
+      sub_category,
+      product_type,
+      model,
+      variant,
+      make,
+      year_range,
+      is_universal,
+      is_consumable,
+      product_name,
+      sku_code,
+      part_name,
+      query,
+      sort_by,
+      min_price,
+      max_price,
+      startDate,
+      endDate,
+    } = req.query;
+
+    /* ----------------------------------------------------
+       STEP 1: BASE PRODUCT FILTER (UNCHANGED)
+    ---------------------------------------------------- */
+    const filter = {};
+    const csvToIn = (val) => val.split(",").map((v) => v.trim());
+
+    filter.live_status = "Approved";
+    filter.Qc_status = "Approved";
+
+    if (brand && brand !== "null") filter.brand = { $in: csvToIn(brand) };
+    if (category && category !== "null") filter.category = { $in: csvToIn(category) };
+    if (sub_category && sub_category !== "null") filter.sub_category = { $in: csvToIn(sub_category) };
+    if (product_type && product_type !== "null") filter.product_type = { $in: csvToIn(product_type) };
+    if (model && model !== "null") filter.model = { $in: csvToIn(model) };
+    if (variant && variant !== "null") filter.variant = { $in: csvToIn(variant) };
+    if (make && make !== "null") filter.make = { $in: csvToIn(make) };
+    if (year_range && year_range !== "null") filter.year_range = { $in: csvToIn(year_range) };
+
+    if (is_universal !== undefined && is_universal !== "null") {
+      filter.is_universal = is_universal === "true";
+    }
+
+    if (is_consumable !== undefined && is_consumable !== "null") {
+      filter.is_consumable = is_consumable === "true";
+    }
+
+    if (product_name && product_name !== "null") {
+      filter.product_name = { $regex: product_name, $options: "i" };
+    }
+
+    if (sku_code && sku_code !== "null") {
+      filter.sku_code = { $regex: sku_code, $options: "i" };
+    }
+
+    if (part_name && part_name !== "null") {
+      filter.manufacturer_part_name = { $regex: part_name, $options: "i" };
+    }
+
+    if (min_price || max_price) {
+      filter.selling_price = {};
+      if (min_price) filter.selling_price.$gte = Number(min_price);
+      if (max_price) filter.selling_price.$lte = Number(max_price);
+    }
+
+    if (startDate || endDate) {
+      filter.created_at = {};
+      if (startDate) filter.created_at.$gte = new Date(startDate);
+      if (endDate) filter.created_at.$lte = new Date(endDate);
+    }
+
+    /* ----------------------------------------------------
+       STEP 2: PINCODE → DEALER FILTER (NEW)
+    ---------------------------------------------------- */
+    let dealerIds = [];
+    if (pincode) {
+      const dealerRes = await axios.get(
+        `http://user-service:5001/api/users/get/servicableDealer/pincodes/${pincode}`,
+        {
+          headers: { Authorization: req.headers.authorization || "" },
+        }
+      );
+
+      const dealers = dealerRes.data?.data || [];
+      console.log("dealers for pincode", dealerRes.data, "pincode", dealers);
+       dealerIds = dealers.map((d) => d._id);
+      console.log("dealerIds", dealerIds);
+      if (dealers.length == 0) {
+        return sendSuccess(
+          res,
+          {
+            products: [],
+            pagination: {
+              currentPage: 0,
+              totalPages: 0,
+              totalItems: 0,
+              hasNextPage: false,
+              hasPrevPage: false,
+              limit: 0,
+              nextPage: null,
+              prevPage: null,
+            },
+          },
+          "No products available for this pincode"
+        );
+      }
+
+
+
+      // filter.available_dealers = {
+      //   $elemMatch: {
+      //     dealers_Ref: { $in: dealerIds },
+      //     inStock: true
+      //   }
+      // };
+
+
+    }
+
+    /* ----------------------------------------------------
+       STEP 3: SORTING (UNCHANGED)
+    ---------------------------------------------------- */
+    let sortOption = { created_at: -1, _id: 1 };
+
+    if (sort_by) {
+      sortOption = {};
+      switch (sort_by.trim()) {
+        case "A-Z":
+          sortOption.product_name = 1;
+          break;
+        case "Z-A":
+          sortOption.product_name = -1;
+          break;
+        case "L-H":
+          sortOption.selling_price = 1;
+          break;
+        case "H-L":
+          sortOption.selling_price = -1;
+          break;
+        default:
+          sortOption.created_at = -1;
+          sortOption._id = 1;
+      }
+    }
+
+    /* ----------------------------------------------------
+       STEP 4: FETCH PRODUCTS (NO PAGINATION)
+    ---------------------------------------------------- */
+    let products = await Product.find(filter)
+      .populate("brand category sub_category model variant year_range")
+      .sort(sortOption)
+      .lean();
+
+    /* ----------------------------------------------------
+       STEP 5: IN-MEMORY QUERY SEARCH (UNCHANGED)
+    ---------------------------------------------------- */
+    if (query && query.trim()) {
+      const queryParts = query.toLowerCase().split(/\s+/);
+
+      products = products.filter((product) => {
+        const tags = (product.search_tags || []).map((t) => t.toLowerCase());
+        const productName = (product.product_name || "").toLowerCase();
+
+        return queryParts.some((q) => {
+          // 1️⃣ Match against search_tags (fuzzy)
+          const tagMatch = tags.some(
+            (tag) => stringSimilarity(tag, q) >= 0.6
+          );
+
+          // 2️⃣ Match against product_name (substring + fuzzy)
+          const nameMatch =
+            productName.includes(q) ||
+            stringSimilarity(productName, q) >= 0.6;
+
+          return tagMatch || nameMatch;
+        });
+      });
+    }
+    products = products.map((product) => {
+      let is_serviceable = false;
+
+      if (dealerIds.length && Array.isArray(product.available_dealers)) {
+        is_serviceable = product.available_dealers.some((dealer) =>
+          dealer.inStock === true &&
+          dealer.dealers_Ref &&
+          dealerIds.includes(String(dealer.dealers_Ref))
+        );
+      }
+
+      return {
+        ...product,
+        is_serviceable, // ✅ NEW FIELD
+      };
+    });
+
+
+
+    const totalCount = products.length;
+
+    /* ----------------------------------------------------
+       STEP 6: SAME RESPONSE STRUCTURE
+    ---------------------------------------------------- */
+    return sendSuccess(
+      res,
+      {
+        products,
+        pagination: {
+          currentPage: 0,
+          totalPages: totalCount ? 1 : 0,
+          totalItems: totalCount,
+          hasNextPage: false,
+          hasPrevPage: false,
+          limit: totalCount,
+          nextPage: null,
+          prevPage: null,
+        },
+      },
+      "Products fetched successfully"
+    );
+  } catch (err) {
+    logger.error(`❌ getProductsByFilters error: ${err.stack}`);
+    console.error(err);
+    return sendError(res, err.message || "Internal server error");
   }
 };
