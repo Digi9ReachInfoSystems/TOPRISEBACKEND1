@@ -1243,4 +1243,11 @@ router.get(
   userController.getDealerPincodes
 )
 
+router.get(
+  "/get/servicableDealer/pincodes/:pincode",
+  userController.getDealersByServiceablePincode
+) 
+
+      
+
 module.exports = router;
