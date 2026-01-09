@@ -3227,7 +3227,9 @@ exports.approveProduct = async (req, res) => {
 exports.getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findById(id)
+    const { pincode } = req.query;
+    console.log("Pincode:", pincode);
+    let product = await Product.findById(id)
       .populate({
         path: "brand",
         populate: {
@@ -3237,7 +3239,20 @@ exports.getProductById = async (req, res) => {
       })
       .populate("category sub_category model variant year_range");
     if (!product) return sendError(res, "Product not found", 404);
-
+    let dealers = []
+    if (pincode) {
+      const dealerRes = await axios.get(
+        `http://user-service:5001/api/users/get/servicableDealer/pincodes/${pincode}`,
+        {
+          headers: { Authorization: req.headers.authorization || "" },
+        }
+      );
+      if (dealerRes.data.data) {
+        dealers = dealerRes.data?.data || [];
+      }
+    }
+    let dealerIds = dealers?.map((d) => d._id) || [];
+    console.log("Serviceable dealer IDs:", dealerIds);
     // Populate dealer details from user service
     if (product.available_dealers && product.available_dealers.length > 0) {
       const authorizationHeader = req.headers.authorization;
@@ -3253,8 +3268,18 @@ exports.getProductById = async (req, res) => {
       const populatedDealers = await Promise.all(dealerPromises);
       product.available_dealers = populatedDealers;
     }
+    let productDoc = product.toObject();
 
-    return sendSuccess(res, product, "Product fetched successfully");
+    if (pincode) {
+      productDoc.is_serviceable =
+        product.available_dealers?.some(
+          (dealer) =>
+            dealerIds.includes(String(dealer.dealers_Ref)) &&
+            dealer.inStock === true
+        ) || false;
+    }
+
+    return sendSuccess(res, productDoc, "Product fetched successfully");
   } catch (err) {
     logger.error(`getProductById error: ${err.message}`);
     return sendError(res, err);
@@ -8200,7 +8225,7 @@ exports.getProductsByFiltersForPurchaseOrder = async (req, res) => {
 
       const dealers = dealerRes.data?.data || [];
       console.log("dealers for pincode", dealerRes.data, "pincode", dealers);
-       dealerIds = dealers.map((d) => d._id);
+      dealerIds = dealers.map((d) => d._id);
       console.log("dealerIds", dealerIds);
       if (dealers.length == 0) {
         return sendSuccess(
