@@ -3241,7 +3241,8 @@ exports.getProductById = async (req, res) => {
     if (!product) return sendError(res, "Product not found", 404);
     let dealers = []
     if (pincode) {
-      const dealerRes = await axios.get(
+      try{
+const dealerRes = await axios.get(
         `http://user-service:5001/api/users/get/servicableDealer/pincodes/${pincode}`,
         {
           headers: { Authorization: req.headers.authorization || "" },
@@ -3250,6 +3251,10 @@ exports.getProductById = async (req, res) => {
       if (dealerRes.data.data) {
         dealers = dealerRes.data?.data || [];
       }
+      }catch(err){
+        console.error("Error fetching serviceable dealers:", err.message);
+      }
+      
     }
     let dealerIds = dealers?.map((d) => d._id) || [];
     console.log("Serviceable dealer IDs:", dealerIds);
