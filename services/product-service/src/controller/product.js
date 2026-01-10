@@ -8370,3 +8370,86 @@ exports.getProductsByFiltersForPurchaseOrder = async (req, res) => {
     return sendError(res, err.message || "Internal server error");
   }
 };
+
+
+exports.checkProductServiceability = async (req, res) => {
+  try {
+    const { id ,pincode} = req.params;
+    if(!id||!pincode){
+      return sendError(res, "Product ID and Pincode are required", 400);
+    }
+    // console.log("Pincode:", pincode);
+    let product = await Product.findById(id)
+      .populate({
+        path: "brand",
+        populate: {
+          path: "type",
+          model: "Type"
+        }
+      })
+      .populate("category sub_category model variant year_range");
+    if (!product) return sendError(res, "Product not found", 404);
+    let dealers = []
+    if (pincode) {
+      try{
+const dealerRes = await axios.get(
+        `http://user-service:5001/api/users/get/servicableDealer/pincodes/${pincode}`,
+        {
+          headers: { Authorization: req.headers.authorization || "" },
+        }
+      );
+      if (dealerRes.data.data) {
+        dealers = dealerRes.data?.data || [];
+      }
+      }catch(err){
+        console.error("Error fetching serviceable dealers:", err.message);
+      }
+      
+    }
+    let dealerIds = dealers?.map((d) => d._id) || [];
+    console.log("Serviceable dealer IDs:", dealerIds);
+    // Populate dealer details from user service
+    if (product.available_dealers && product.available_dealers.length > 0) {
+      const authorizationHeader = req.headers.authorization;
+      const dealerPromises = product.available_dealers.map(async (dealer) => {
+        const dealerDetails = await fetchDealerDetails(dealer.dealers_Ref, authorizationHeader);
+        return {
+          ...dealer.toObject(),
+          dealer_details: dealerDetails,
+        };
+      });
+
+      // Wait for all dealer details to be fetched
+      const populatedDealers = await Promise.all(dealerPromises);
+      product.available_dealers = populatedDealers;
+    }
+    let productDoc = product.toObject();
+    let productServiceable = false;
+
+    if (pincode) {
+     productServiceable =
+        product.available_dealers?.some(
+          (dealer) =>
+            dealerIds.includes(String(dealer.dealers_Ref)) &&
+            dealer.inStock === true
+        ) || false;
+    }
+    if(productServiceable){
+      return res.status(200).json({
+         success: true,
+      message: "Product is serviceable for the given pincode",
+      data: productDoc,
+      })
+    
+    }else{
+      return res.status(200).json({
+        success: false,
+      message: "Product is not serviceable for the given pincode",
+      data: productDoc,
+      })
+    }
+  } catch (err) {
+    logger.error(`getProductById error: ${err.message}`);
+    return sendError(res, err);
+  }
+};

@@ -461,4 +461,5 @@ router.get("/get/product/stats/by/dealer/:dealerId", productController.getProduc
 router.put("/remove/delar/bybrandIds", productController.removeDealerFromProductBybrandId);
 router.get("/dealer/:dealerId/product-stock-stats", productController.getDealerProductStockStats);
 router.get("/get/products/for/purchase-order", productController.getProductsByFiltersForPurchaseOrder);
+router.get("/check/product/serviceability/:id/:pincode", productController.checkProductServiceability);
 module.exports = router;

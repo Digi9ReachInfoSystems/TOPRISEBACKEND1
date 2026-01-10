@@ -34,6 +34,11 @@ const OrderSchema = new mongoose.Schema(
       {
         sku: String,
         quantity: Number,
+        delivery_chanel:{
+          type: String,
+          enum: ["Borzo", "Manual_Rapido"],
+          default: "Borzo"
+        },
         product_image: [String],
         productId: String,
         productName: String,
