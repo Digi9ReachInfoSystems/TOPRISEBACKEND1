@@ -376,8 +376,8 @@ const formatDate = (date) => {
 exports.createOrder = async (req, res) => {
   try {
     const orderId = `ORD-${Date.now()}-${uuidv4().slice(0, 8)}`;
-    let validSKU=[];
-    if(req.body.skus && req.body.skus.length>0){
+    let validSKU = [];
+    if (req.body.skus && req.body.skus.length > 0) {
       validSKU = req.body.skus.filter(sku => sku.is_available != false);
     }
 
@@ -405,7 +405,7 @@ exports.createOrder = async (req, res) => {
       //   totalPrice: s.totalPrice,
       //   dealerMapped: [],
       // })),
-      skus:validSKU,
+      skus: validSKU,
       dealerMapping: [],
       ordered_pincode: req.body.ordered_pincode || req.body.customerDetails?.pincode || "",
     };
@@ -6441,7 +6441,7 @@ exports.borzoWebhookUpdated = async (req, res) => {
             returnOrder.tracking_info.timestamps.confirmedAt = new Date();
             returnOrder.tracking_info.borzo_last_updated = new Date();
             returnOrder.tracking_info.borzo_tracking_status = borzoOrderStatus.toLowerCase();
-            returnOrder.
+            returnOrder.shipment_started = true;
               break;
           case "active":
             returnOrder.tracking_info.status == "On_The_Way_To_Next_Delivery_Point";
@@ -6490,7 +6490,7 @@ exports.borzoWebhookUpdated = async (req, res) => {
             returnOrder.timestamps.borzoShipmentCompletedAt = new Date();
             returnOrder.tracking_info.borzo_last_updated = new Date();
             returnOrder.tracking_info.borzo_tracking_status = borzoOrderStatus.toLowerCase();
-
+            returnOrder.shipment_completed = true;
             //create Audit log
             try {
               auditLogger("Return_Borzo_Delivered_At_Dealer", "RETURN");
@@ -8406,5 +8406,327 @@ exports.getDealerRevenue = async (req, res) => {
   } catch (error) {
     console.error("Dealer revenue error:", error);
     return sendError(res, "Failed to calculate dealer revenue");
+  }
+};
+
+exports.markAsManualDeliveryStarted = async (req, res) => {
+  try {
+    const { orderId, dealerId, weight_object, sku, picklistId, forcePacking = false, securePackageAmount, delivery_completion_time } = req.body;
+    const total_weight_kg = weight_object ? Object.values(weight_object).reduce((sum, w) => sum + w, 0) : 0;
+    const headers = { "Content-Type": "application/json" };
+    if (req.headers.authorization) {
+      headers.Authorization = req.headers.authorization;
+    }
+    // console.log("total_weight_kg",total_weight_kg);
+    const appSettingResp = await axios.get(
+      "http://user-service:5001/api/appSetting"
+    );
+    const days = appSettingResp.data?.data?.returnPolicy || 14;
+    let picklist;
+    if (!forcePacking) {
+
+      
+      if (picklistId) {
+        picklist = await PickList.findOne({ _id: picklistId });
+      } else if (sku) {
+        picklist = await PickList.findOne({
+          linkedOrderId: orderId,
+          skuList: {
+            $elemMatch: { sku: sku }
+          }
+        });
+      }
+
+      if (!picklist) {
+        return res.status(404).json({ error: "Picklist not found" });
+      }
+      if (sku) {
+        const status = picklist.skuList.find((item) => item.sku === sku);
+        console.log("status", status);
+        if (status.scanStatus !== "Completed") {
+          return res.status(400).json({ error: "Item Inspection not completed" });
+        }
+      }
+      if (picklistId) {
+        const every = picklist.skuList.every((item) => item.scanStatus === "Completed");
+        if (!every) {
+          return res.status(400).json({ error: "Picklist not completed" });
+        }
+      }
+
+
+
+
+    } else {
+
+      if (picklistId) {
+        picklist = await PickList.findOne({ _id: picklistId });
+      } else if (sku) {
+        picklist = await PickList.findOne({
+          linkedOrderId: orderId,
+          skuList: {
+            $elemMatch: { sku: sku }
+          }
+        });
+      }
+
+      if (!picklist) {
+        return res.status(404).json({ error: "Picklist not found" });
+      }
+      // update picklist status
+      picklist.skuList = picklist.skuList.map((item) => {
+        return {
+          ...item.toObject(),
+          scanStatus: "Completed",
+        };
+      });
+      picklist.scanStatus = picklist.skuList.every((item) => item.status === "Completed") ? "Completed" : "In Progress";
+      picklist = await picklist.save();
+
+    }
+    console.log("picklist", picklist);
+
+    
+    if (picklistId) {
+      const every = picklist.skuList.every((item) => item.scanStatus === "Completed");
+      if (!every) {
+        return res.status(400).json({ error: "Picklist not completed" });
+      }
+    }
+    const skuListOne = picklist?.skuList?.map(item => item.sku);
+    // let isProductReturnable;
+    let isProductsReturnable;
+      let dealerFound = false;
+    if (picklistId) {
+      const picklist = await PickList.findById(picklistId);
+      const skuList = picklist.skuList.map(item => item.sku);
+      isProductsReturnable = {};
+      for (const skuItem of skuList) {
+        const responseProduct = await axios.get(
+          `http://product-service:5001/products/v1/sku/${skuItem}`,
+          { timeout: 5000 }
+        );
+        const productDataFetched = responseProduct.data.data;
+        isProductsReturnable[skuItem] = (productDataFetched) ? productDataFetched.is_returnable : false;
+      }
+    }
+    let order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    if (order.skus && order.skus.length > 0) {
+      order.skus.forEach((sku, index) => {
+
+        if (skuListOne.includes(sku.sku)) {
+
+
+          if (!sku.tracking_info) {
+            sku.tracking_info = {};
+          }
+          // sku.tracking_info.borzo_order_id = data.order_id.toString();
+          // if (data.points[1].tracking_url) sku.tracking_info.borzo_tracking_url = data.points[1].tracking_url;
+          // if (data.tracking_number) sku.tracking_info.borzo_tracking_number = data.tracking_number;
+          sku.delivery_chanel = "Manual_Rapido"
+          sku.tracking_info.status = "Confirmed";
+          if (!sku.tracking_info.timestamps) {
+            sku.tracking_info.timestamps = {};
+          }
+          sku.tracking_info.timestamps.confirmedAt = new Date();
+          // sku.tracking_info.borzo_payment_amount = data.payment_amount;
+          // sku.tracking_info.borzo_delivery_fee_amount = data.delivery_fee_amount;
+          // sku.tracking_info.borzo_weight_fee_amount = data.weight_fee_amount;
+          sku.tracking_info.borzo_weight = total_weight_kg;
+          sku.tracking_info.borzo_order_status = "planned";
+          sku.tracking_info.borzo_tracking_status = "planned";
+          sku.tracking_info.borzo_last_updated = new Date();
+          sku.tracking_info.amount_collected = order.paymentType === "COD" ? false : true;
+          sku.tracking_info.borzo_weight = weight_object[sku.sku] || 0.00;
+          sku.return_info.is_returnable = isProductsReturnable[sku.sku];
+          sku.return_info.return_window_days = days;
+          // sku.tracking_info.borzo_required_finish_datetime = data.points[1].required_finish_datetime || null;
+          sku.markAsPacked = true;
+          if (forcePacking) {
+            sku.inspectionStarted = true;
+            sku.inspectionCompleted = true;
+          }
+          // sku.return_info.is_returnable = isProductsReturnable.;
+        }
+      });
+    }
+    
+    console.log("Saving borzo order id to order and sku tracking info", order.skus);
+    if (picklistId) {
+      const picklist = await PickList.findById(picklistId);
+      const skusInPicklist = picklist.skuList.map(item => item.sku);
+      order.dealerMapping = order.dealerMapping.map((mapping) => {
+        if (mapping.dealerId.toString() === dealerId && skusInPicklist.includes(mapping.sku)) {
+          dealerFound = true;
+          return { ...mapping.toObject(), status: "Packed", packedAt: new Date() };
+        }
+        return mapping;
+      });
+    }
+    await order.save();
+
+
+
+   order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+  
+    let skuList = [];
+    if (picklistId) {
+      const picklist = await PickList.findById(picklistId);
+      skuList = picklist.skuList.map(item => item.sku);
+      isProductsReturnable = {};
+      for (const skuItem of skuList) {
+        const responseProduct = await axios.get(
+          `http://product-service:5001/products/v1/sku/${skuItem}`,
+          { timeout: 5000 }
+        );
+        const productDataFetched = responseProduct.data.data;
+        isProductsReturnable[skuItem] = (productDataFetched) ? productDataFetched.is_returnable : false;
+      }
+    }
+    const allPacked = order.dealerMapping.every(
+      (mapping) => mapping.status === "Packed"
+    );
+    if (allPacked) {
+      const packedAt = new Date();
+      order.status = "Packed";
+      order.timestamps.packedAt = packedAt;
+    }
+    await order.save();
+    // logic for  delaer last fulfillment update
+    const response = await axios.put(
+      `http://user-service:5001/api/users/dealer/update/lastfullfillmentSync/${dealerId}`,
+      { timeout: 5000, headers }
+    );
+    //check voilation
+    await Promise.all(
+      skuList.map(async (sku) => {
+        const response = await axios.post(`http://order-service:5001/api/sla-voilation-model/checkVoilation`,
+          {
+            orderId: orderId,
+            sku: sku,
+            dealerId: dealerId,
+          },
+          {
+            headers: {
+              Authorization: req.headers.authorization
+            }
+          }
+        )
+        console.log("voilation response", response.data);
+      })
+    )
+    //create audit log
+    try {
+      auditLogger("PickList_Packed", "ORDER");
+    } catch (e) {
+      console.log(e)
+    }
+
+    const refreshedOrder = await Order.findById(order._id).lean();
+    return res.json({
+      message: "Dealer status updated successfully",
+      order: refreshedOrder,
+    });
+  } catch (error) {
+    console.error("Dealer revenue error:", error);
+    return sendError(res, "Failed to mark as manual delivery started");
+  }
+};
+
+exports.markAsManualDeliveryEnded = async (req, res) => {
+  try {
+    const { orderId, dealerId, sku, picklistId, securePackageAmount, delivery_completion_time } = req.body;
+
+    const headers = { "Content-Type": "application/json" };
+    if (req.headers.authorization) {
+      headers.Authorization = req.headers.authorization;
+    }
+
+    let picklist;
+    if (picklistId) {
+      picklist = await PickList.findOne({ _id: picklistId });
+    } else if (sku) {
+      picklist = await PickList.findOne({
+        linkedOrderId: orderId,
+        skuList: {
+          $elemMatch: { sku: sku }
+        }
+      });
+    }
+    const order = await Order.findById(orderId);
+
+
+    const skuListOne = picklist?.skuList?.map(item => item.sku);
+
+    if (order.skus && order.skus.length > 0) {
+      order.skus.forEach((sku, index) => {
+
+        if (skuListOne.includes(sku.sku)) {
+
+
+          if (!sku.tracking_info) {
+            sku.tracking_info = {};
+          }
+          sku.delivery_chanel = "Manual_Rapido"
+          sku.tracking_info.status = "Delivered";
+          if (!sku.tracking_info.timestamps) {
+            sku.tracking_info.timestamps = {};
+          }
+          sku.tracking_info.timestamps.deliveredAt = new Date();
+          sku.tracking_info.borzo_order_status = "finished";
+          sku.tracking_info.borzo_last_updated = new Date();
+          sku.tracking_info.amount_collected = order.paymentType === "COD" ? true : true;
+          sku.tracking_info.borzo_tracking_status = "finished";
+
+          sku.markAsDelivered = true;
+        }
+      });
+    }
+    console.log("Saving borzo order id to order and sku tracking info", order.skus);
+
+    await order.save();
+    const checkOrder = await Order.findById(orderId );
+    const allDelivered = checkOrder?.skus.every(
+      (sku) => sku.tracking_info.status === "Delivered"
+    );
+
+    if (allDelivered) {
+      checkOrder.status = "Delivered";
+      await checkOrder.save();
+
+      if (checkOrder.paymentType === "COD") {
+        const payment = await Payment.findOne({ order_id: checkOrder._id });
+        if (payment) {
+          payment.payment_status = "Paid";
+          await payment.save();
+        }
+      }
+      //create Audit log
+      try {
+        auditLogger("Order_Delivered", "ORDER");
+      } catch (e) {
+        console.log(e)
+      }
+    }
+
+
+
+
+    const refreshedOrder = await Order.findById(order._id).lean();
+    return res.json({
+      message: "Dealer status updated successfully",
+      order: refreshedOrder,
+    });
+  } catch (error) {
+    console.error("Dealer revenue error:", error);
+    return sendError(res, "Failed to mark as manual delivery started");
   }
 };

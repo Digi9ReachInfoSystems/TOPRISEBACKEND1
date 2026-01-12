@@ -852,4 +852,15 @@ router.get("/get/order-stats/by-dealer/:dealerId", orderController.getOrderStats
 
 router.get("/dealer/:dealerId/revenue", orderController.getDealerRevenue);
 
+router.put(
+  "/update/order-status-by-dealer/by-sku/manual/deliveryStarted",
+  requireAuth,
+  orderController.markAsManualDeliveryStarted
+);
+router.put(
+  "/update/order-status-by-dealer/by-sku/manual/deliveryEnded",
+  requireAuth,
+  orderController.markAsManualDeliveryEnded
+);
+
 module.exports = router;

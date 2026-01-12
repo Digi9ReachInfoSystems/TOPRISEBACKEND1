@@ -54,4 +54,11 @@ router.put("/Reject-return/:returnId",
 router.get("/return/stats",returnController.getReturnStatusCounts);
 
 router.post("/return/forFullfillmentStaff",returnController.getReturnRequestsFulfillmentStaff);
+router.put("/Intiate-Rapido-Return/:returnId",
+      auditLogger("Return_Rapido_Initiated", "RETURN"),
+    returnController.initiatesManualRapidoPickupForReturn);
+
+router.put("/Deliver-Rapido-Return/:returnId",
+    returnController.markDeliveredManualRapidoReturn);
+
 module.exports = router;

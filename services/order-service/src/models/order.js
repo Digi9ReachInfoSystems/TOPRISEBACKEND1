@@ -133,6 +133,10 @@ const OrderSchema = new mongoose.Schema(
           type: Boolean,
           default: false,
         },
+        markAsDelivered: {
+          type: Boolean,
+          default: false,
+        },
 
       },
     ],

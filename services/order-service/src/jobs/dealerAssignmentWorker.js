@@ -52,11 +52,13 @@ dealerAssignmentQueue.process(async (job) => {
         // const resp = await productApi.get(
         //   `/products/v1/products/${productId}/availableDealers`
         // );
+        console.log(`Fetching dealers for product ${productId} at pincode ${order.ordered_pincode}`);
         const resp = await productApi.get(
           `/products/v1/products/${productId}/availableDealers/pincode/${order.ordered_pincode}`
         );
-        const dealers = resp.data.data || resp.data; // depending on your API shape
 
+        const dealers = resp.data.data || resp.data; // depending on your API shape
+   
         logger.info(
           `Found ${dealers.length} available dealers for product ${productId}`
         );

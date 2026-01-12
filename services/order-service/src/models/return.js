@@ -72,6 +72,20 @@ const ReturnSchema = new mongoose.Schema({
     ],
     default: "Requested",
   },
+  delivery_chanel: {
+    type: String,
+    enum: ["Borzo", "Manual_Rapido"],
+    default: "Borzo"
+  },
+  shipment_started: {
+    type: Boolean,
+    default: false,
+  },
+  shipment_completed: {
+    type: Boolean,
+    default: true,
+  },
+
   tracking_info: {
     borzo_order_id: String,
     borzo_tracking_url: String,
@@ -87,7 +101,7 @@ const ReturnSchema = new mongoose.Schema({
     // Individual SKU status
     status: {
       type: String,
-      enum: ["Pending", "Confirmed", "Assigned", "Packed", "Shipped", "Delivered", "OUT_FOR_DELIVERY", "On_The_Way_To_Next_Delivery_Point", "Cancelled", "Returned","Picked Up"],
+      enum: ["Pending", "Confirmed", "Assigned", "Packed", "Shipped", "Delivered", "OUT_FOR_DELIVERY", "On_The_Way_To_Next_Delivery_Point", "Cancelled", "Returned", "Picked Up"],
       default: "Pending"
     },
     // Individual SKU timestamps
@@ -100,7 +114,7 @@ const ReturnSchema = new mongoose.Schema({
       deliveredAt: Date,
       cancelledAt: Date,
       onTheWayToNextDeliveryPointAt: Date,
-      
+
 
     }
   },
@@ -141,7 +155,7 @@ const ReturnSchema = new mongoose.Schema({
     },
     condition: {
       type: String,
-      enum: ["Excellent", "Good", "Fair", "Poor", "Damaged","N/A"],
+      enum: ["Excellent", "Good", "Fair", "Poor", "Damaged", "N/A"],
       default: "N/A",
     },
     note: String,
@@ -173,7 +187,7 @@ const ReturnSchema = new mongoose.Schema({
     refundCompletedAt: Date,
     returnCompletedAt: Date,
   },
-  rejectReason:{
+  rejectReason: {
     type: String,
     default: null,
   },
@@ -210,7 +224,7 @@ const ReturnSchema = new mongoose.Schema({
   //   default: "Refund",
   // },
 
-  
+
 
   originalOrderDate: Date,
   originalDeliveryDate: Date,

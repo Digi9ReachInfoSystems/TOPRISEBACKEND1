@@ -14,7 +14,7 @@ const PRODUCT_SERVICE_URL =
 // User service URL for fetching user details
 const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || "http://user-service:5001/api/users";
-const mongoose = require("mongoose"); 
+const mongoose = require("mongoose");
 /**
  * 1. Create Return Request - Customer initiates return
  */
@@ -97,7 +97,7 @@ exports.createReturnRequest = async (req, res) => {
       originalDeliveryDate: order.skus.find((s) => s.sku === sku)?.tracking_info
         ?.timestamps?.deliveredAt,
       dealerId: order.dealerMapping.find((d) => d.sku === sku)?.dealerId,
-      returnStatus: "Requested" ,
+      returnStatus: "Requested",
       refund: {
         refundAmount: orderSku.totalPrice,
       },
@@ -112,7 +112,7 @@ exports.createReturnRequest = async (req, res) => {
           ...s.return_info,
           is_returned: true,
           return_id: returnRequest._id,
-          
+
         };
       }
       return s;
@@ -181,8 +181,8 @@ exports.validateReturnRequest = async (req, res) => {
     returnRequest.isWithinReturnWindow = eligibilityResult.isWithinReturnWindow;
     returnRequest.isProductReturnable = eligibilityResult.isProductReturnable;
     returnRequest.returnStatus = "Requested"
-      // ? "Validated"
-      // : "Requested";
+    // ? "Validated"
+    // : "Requested";
     returnRequest.timestamps.validatedAt = new Date();
 
     await returnRequest.save();
@@ -575,9 +575,9 @@ exports.getReturnRequest = async (req, res) => {
 
     const returnRequest = await Return.findById(returnId).populate(
       "orderId",
-      
+
     )
-    .populate("refund.refund_id");
+      .populate("refund.refund_id");
     // .populate('dealerId', 'dealerName');
 
     if (!returnRequest) {
@@ -1399,20 +1399,20 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
       }) ||
       "Delivery Address";
     const customerGeo = await geocodeAddress(order.customerDetails?.pincode);
-     let vehicle_type = 8;
-     if (total_weight_kg) {
-          if (total_weight_kg <= 20) {
-            vehicle_type = 8; // bike
-          } else if (total_weight_kg > 20 && total_weight_kg <= 500) {
-            vehicle_type = 10; // 3 wheeler
-          }  else if (total_weight_kg > 500 && total_weight_kg <= 750) {
-            vehicle_type = 3; //  tata ace  ft
-          } else if (total_weight_kg > 750 && total_weight_kg <= 1000) {
-            vehicle_type = 2; // tata ace 8 ft
-          } else {
-            vehicle_type = 2; // tata ace 8 ft
-          }
-        }
+    let vehicle_type = 8;
+    if (total_weight_kg) {
+      if (total_weight_kg <= 20) {
+        vehicle_type = 8; // bike
+      } else if (total_weight_kg > 20 && total_weight_kg <= 500) {
+        vehicle_type = 10; // 3 wheeler
+      } else if (total_weight_kg > 500 && total_weight_kg <= 750) {
+        vehicle_type = 3; //  tata ace  ft
+      } else if (total_weight_kg > 750 && total_weight_kg <= 1000) {
+        vehicle_type = 2; // tata ace 8 ft
+      } else {
+        vehicle_type = 2; // tata ace 8 ft
+      }
+    }
     const dropPoint = {
       address: dealerAddressString,
       contact_person: {
@@ -1427,7 +1427,7 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
       longitude: dealerGeo?.longitude || 77.31912,
       // latitude: 28.583905,
       // longitude: 77.322733,
-      
+
       client_order_id: `RTN,${returnId},${returnRequest.sku}`,
     };
 
@@ -1448,10 +1448,10 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
       type: "endofday",
       matter: "Automobile Parts Delivery",
       total_weight_kg: total_weight_kg || "3", // Dynamic weight from request body
-       insurance_amount: securePackageAmount,
-        vehicle_type_id: vehicle_type,
-       is_client_notification_enabled: true,
-          is_contact_person_notification_enabled: true,
+      insurance_amount: securePackageAmount,
+      vehicle_type_id: vehicle_type,
+      is_client_notification_enabled: true,
+      is_contact_person_notification_enabled: true,
       points: borzoPointsUsed,
     };
     const instantReq = { body: { ...orderData, type: "standard" } };
@@ -1468,30 +1468,31 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
               );
               const splitedOrderId = data.points[0].client_order_id.split(",");
               const skuValue = splitedOrderId[2];
-             
-
-             
-              
 
 
-                    if (!returnRequest.tracking_info) {
-                      sku.tracking_info = {};
-                    }
-                    returnRequest.tracking_info.borzo_order_id = data.order_id.toString();
-                    if (data.points[1].tracking_url) returnRequest.tracking_info.borzo_tracking_url = data.points[1].tracking_url;
-                    if (data.tracking_number) returnRequest.tracking_info.borzo_tracking_number = data.tracking_number;
-                    returnRequest.tracking_info.status = "Confirmed";
-                    if (!returnRequest.tracking_info.timestamps) {
-                      returnRequest.tracking_info.timestamps = {};
-                    }
-                    returnRequest.tracking_info.timestamps.confirmedAt = new Date();
-                    returnRequest.tracking_info.borzo_payment_amount = data.payment_amount;
-                    returnRequest.tracking_info.borzo_delivery_fee_amount = data.delivery_fee_amount;
-                    returnRequest.tracking_info.borzo_weight_fee_amount = data.weight_fee_amount;
-                    returnRequest.tracking_info.borzo_weight = total_weight_kg;
-                    returnRequest.tracking_info.borzo_last_updated = new Date();
-                   returnRequest.returnStatus="Shipment_Intiated";
-                   returnRequest.timestamps.borzoShipmentInitiatedAt = new Date();
+
+
+
+
+              if (!returnRequest.tracking_info) {
+                sku.tracking_info = {};
+              }
+              returnRequest.tracking_info.borzo_order_id = data.order_id.toString();
+              if (data.points[1].tracking_url) returnRequest.tracking_info.borzo_tracking_url = data.points[1].tracking_url;
+              if (data.tracking_number) returnRequest.tracking_info.borzo_tracking_number = data.tracking_number;
+              returnRequest.tracking_info.status = "Confirmed";
+              if (!returnRequest.tracking_info.timestamps) {
+                returnRequest.tracking_info.timestamps = {};
+              }
+              returnRequest.tracking_info.timestamps.confirmedAt = new Date();
+              returnRequest.tracking_info.borzo_payment_amount = data.payment_amount;
+              returnRequest.tracking_info.borzo_delivery_fee_amount = data.delivery_fee_amount;
+              returnRequest.tracking_info.borzo_weight_fee_amount = data.weight_fee_amount;
+              returnRequest.tracking_info.borzo_weight = total_weight_kg;
+              returnRequest.tracking_info.borzo_last_updated = new Date();
+              returnRequest.returnStatus = "Shipment_Intiated";
+              returnRequest.shipment_started = true;
+              returnRequest.timestamps.borzoShipmentInitiatedAt = new Date();
               await returnRequest.save();
               try {
                 await logOrderAction({
@@ -1596,7 +1597,7 @@ exports.createOrderBorzoInstantUpdated = async (req, res) => {
 
     // Create Borzo order payload with dynamic total_weight_kg
     const borzoOrderPayload = {
-       type,
+      type,
       matter,
       total_weight_kg: total_weight_kg.toString(),
       insurance_amount: insurance_amount.toString(),
@@ -1871,19 +1872,19 @@ exports.createOrderBorzoInstantUpdated = async (req, res) => {
 exports.startReturnRequestInspection = async (req, res) => {
   try {
     const { returnId } = req.params;
-    const {  inspectedBy ,isSuperAdmin=false} = req.body;
+    const { inspectedBy, isSuperAdmin = false } = req.body;
 
     const returnRequest = await Return.findById(returnId);
     if (!returnRequest) {
       return sendError(res, "Return request not found");
     }
-    if(returnRequest.returnStatus !== "Shipment_Completed") {
+    if (returnRequest.returnStatus !== "Shipment_Completed") {
       return sendError(res, "Return request is not eligible for inspection");
     }
 
     // Update inspection details
     returnRequest.returnStatus = "Inspection_Started";
-    returnRequest.inspection.isSuperAdminInspected= isSuperAdmin
+    returnRequest.inspection.isSuperAdminInspected = isSuperAdmin
     returnRequest.timestamps.inspectionStartedAt = new Date();
     returnRequest.inspection.inspectedBy = inspectedBy;
     returnRequest.inspection.inspectionStartedAt = new Date();
@@ -1897,7 +1898,7 @@ exports.startReturnRequestInspection = async (req, res) => {
       "Return request inspection started successfully"
     );
   } catch (error) {
-    console.error("Error starting return request inspection:", error);  
+    console.error("Error starting return request inspection:", error);
     logger.error("Start return request inspection error:", error);
     return sendError(res, "Failed to start return request inspection");
   }
@@ -1906,13 +1907,13 @@ exports.startReturnRequestInspection = async (req, res) => {
 exports.completeReturnRequestInspection = async (req, res) => {
   try {
     const { returnId } = req.params;
-    const { inspectedBy,isSuperAdmin=false, condition, remarks,skuMatch,isApproved ,inspectionImages} = req.body;
+    const { inspectedBy, isSuperAdmin = false, condition, remarks, skuMatch, isApproved, inspectionImages } = req.body;
 
     const returnRequest = await Return.findById(returnId);
     if (!returnRequest) {
       return sendError(res, "Return request not found");
     }
-    if(returnRequest.returnStatus !== "Inspection_Started") {
+    if (returnRequest.returnStatus !== "Inspection_Started") {
       return sendError(res, "Return request is not eligible for inspection completion");
     }
 
@@ -1926,7 +1927,7 @@ exports.completeReturnRequestInspection = async (req, res) => {
     returnRequest.inspection.skuMatch = skuMatch;
     returnRequest.inspection.inspectionImages = inspectionImages || [];
     returnRequest.inspection.isApproved = isApproved;
-    returnRequest.inspection.isSuperAdminInspected= isSuperAdmin;
+    returnRequest.inspection.isSuperAdminInspected = isSuperAdmin;
     returnRequest.inspection.status = "Completed";
 
     await returnRequest.save();
@@ -1937,7 +1938,7 @@ exports.completeReturnRequestInspection = async (req, res) => {
       "Return request inspection completed successfully"
     );
   } catch (error) {
-    console.error("Error completing return request inspection:", error);  
+    console.error("Error completing return request inspection:", error);
     logger.error("Complete return request inspection error:", error);
     return sendError(res, "Failed to complete return request inspection");
   }
@@ -1946,7 +1947,7 @@ exports.completeReturnRequestInspection = async (req, res) => {
 exports.rejectReturnRequest = async (req, res) => {
   try {
     const { returnId } = req.params;
-    const {  rejectionReason } = req.body;
+    const { rejectionReason } = req.body;
 
     const returnRequest = await Return.findById(returnId);
     if (!returnRequest) {
@@ -1970,7 +1971,7 @@ exports.rejectReturnRequest = async (req, res) => {
     );
   } catch (error) {
     logger.error("Reject return request error:", error);
-    return sendError(res, "Failed to reject return request");  
+    return sendError(res, "Failed to reject return request");
   }
 }
 
@@ -2048,20 +2049,20 @@ exports.getReturnRequestsFulfillmentStaff = async (req, res) => {
       startDate,
       endDate,
       refundMethod,
-      
+
     } = req.query;
-  const {
-    dealerId,
-  } = req.body;
+    const {
+      dealerId,
+    } = req.body;
     const filter = {};
 
     if (customerId) filter.customerId = customerId;
     if (status) filter.returnStatus = status;
     if (orderId) filter.orderId = orderId;
-     // if (dealerId) filter.dealerId = dealerId;
+    // if (dealerId) filter.dealerId = dealerId;
     //dealerId is an Array
-   
-    if(Array.isArray(dealerId)) filter.dealerId = { $in: dealerId };
+
+    if (Array.isArray(dealerId)) filter.dealerId = { $in: dealerId };
 
     if (startDate && endDate) {
       filter["timestamps.requestedAt"] = {
@@ -2069,12 +2070,12 @@ exports.getReturnRequestsFulfillmentStaff = async (req, res) => {
         $lte: new Date(endDate),
       };
     }
-    if(refundMethod) filter['refund.refundMethod']=refundMethod;
+    if (refundMethod) filter['refund.refundMethod'] = refundMethod;
 
     const skip = (page - 1) * limit;
 
     const returnRequests = await Return.find(filter)
-      .populate("orderId", )
+      .populate("orderId",)
       .populate("refund.refund_id")
       // Note: dealerId populate removed to avoid "Schema hasn't been registered for model 'Dealer'" error
       .sort({ "timestamps.requestedAt": -1 })
@@ -2099,5 +2100,73 @@ exports.getReturnRequestsFulfillmentStaff = async (req, res) => {
   } catch (error) {
     logger.error("Get return requests error:", error);
     return sendError(res, "Failed to get return requests");
+  }
+};
+
+exports.initiatesManualRapidoPickupForReturn = async (req, res) => {
+  try {
+    const { returnId } = req.params;
+    const returnRequest = await Return.findById(returnId);
+    if (!returnRequest) {
+      return sendError(res, "Return request not found");
+    }
+    const order = await Order.findById(returnRequest.orderId);
+    if (!order) {
+      return sendError(res, "Order not found");
+    }
+    const authHeader = req.headers.authorization;
+    if (!returnRequest.tracking_info) {
+      sku.tracking_info = {};
+    }
+    // returnRequest.tracking_info.borzo_order_id = data.order_id.toString();
+    // if (data.points[1].tracking_url) returnRequest.tracking_info.borzo_tracking_url = data.points[1].tracking_url;
+    // if (data.tracking_number) returnRequest.tracking_info.borzo_tracking_number = data.tracking_number;
+    returnRequest.tracking_info.status = "Confirmed";
+    if (!returnRequest.tracking_info.timestamps) {
+      returnRequest.tracking_info.timestamps = {};
+    }
+    returnRequest.delivery_chanel = "Manual_Rapido";
+    returnRequest.tracking_info.timestamps.confirmedAt = new Date();
+    returnRequest.tracking_info.borzo_last_updated = new Date();
+    returnRequest.returnStatus = "Shipment_Intiated";
+    returnRequest.shipment_started = true;
+    returnRequest.shipment_completed = false;
+    returnRequest.timestamps.borzoShipmentInitiatedAt = new Date();
+    await returnRequest.save();
+    return sendSuccess(res, returnRequest, "Manual Rapido pickup initiated successfully");
+  } catch (error) {
+    logger.error("Initiate manual Rapido pickup error:", error);
+    return sendError(res, "Failed to initiate manual Rapido pickup");
+  }
+};
+
+
+exports.markDeliveredManualRapidoReturn = async (req, res) => {
+  try {
+    const { returnId } = req.params;
+    const returnRequest = await Return.findById(returnId);
+    if (!returnRequest) {
+      return sendError(res, "Return request not found");
+    }
+    const order = await Order.findById(returnRequest.orderId);
+    if (!order) {
+      return sendError(res, "Order not found");
+    }
+    const authHeader = req.headers.authorization;
+    if (!returnRequest.tracking_info) {
+      sku.tracking_info = {};
+    }
+    returnRequest.tracking_info.status = "Delivered";
+    returnRequest.tracking_info.timestamps.deliveredAt = new Date();
+    returnRequest.returnStatus = "Shipment_Completed";
+    returnRequest.timestamps.borzoShipmentCompletedAt = new Date();
+    returnRequest.tracking_info.borzo_last_updated = new Date();
+    returnRequest.tracking_info.borzo_tracking_status = "finished";
+    returnRequest.shipment_completed = true;
+    await returnRequest.save();
+    return sendSuccess(res, returnRequest, "Manual Rapido return marked as delivered successfully");
+  } catch (error) {
+    logger.error("Initiate manual Rapido pickup error:", error);
+    return sendError(res, "Failed to initiate manual Rapido pickup");
   }
 };
