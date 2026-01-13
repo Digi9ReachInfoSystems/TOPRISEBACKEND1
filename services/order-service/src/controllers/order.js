@@ -651,16 +651,25 @@ exports.assignOrderItemsToDealers = async (req, res) => {
     order.timestamps.assignedAt = new Date();
     order.skus =await Promise.all( order.skus.map(async(sku) => {
       const skuData = assignments.find((a) => a.sku === sku.sku);
+      if(skuData){
+        
+      
+      console.log("skuData",skuData,sku);
         // 4) Decrement stock
-        await productApi.patch(
-          `/products/v1/products/${skuData.productId}/availableDealers/${skuData.dealerId}`,
-          { decrementBy: skuData.quantity }
+        await axios.patch(
+          `http://product-service:5001/products/v1/products/${sku.productId}/availableDealers/${skuData.dealerId}`,
+          { decrementBy: sku.quantity }
         );
       return {
         ...sku,
         dealerMapped: [{
           dealerId: skuData.dealerId
         }]
+      }
+      }else{
+        return {
+          ...sku,
+        }
       }
     }));
 
@@ -709,6 +718,7 @@ exports.assignOrderItemsToDealers = async (req, res) => {
 
     return sendSuccess(res, order, "Items assigned to dealers successfully");
   } catch (error) {
+    console.log("Error",error)
     logger.error("Assignment failed:", error);
     return sendError(res, "Failed to assign items to dealers");
   }
