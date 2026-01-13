@@ -1427,8 +1427,8 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
       longitude: dealerGeo?.longitude || 77.31912,
       // latitude: 28.583905,
       // longitude: 77.322733,
-
-      client_order_id: `RTN,${returnId},${returnRequest.sku}`,
+      note: `RTN,${returnId},${returnRequest.sku}`,
+      client_order_id: `${returnId}`,
     };
 
     const pickupPoint = {
