@@ -8459,7 +8459,7 @@ exports.getDealerRevenue = async (req, res) => {
 
 exports.markAsManualDeliveryStarted = async (req, res) => {
   try {
-    const { orderId, dealerId, weight_object, sku, picklistId, forcePacking = false, securePackageAmount, delivery_completion_time } = req.body;
+    const { orderId, dealerId, weight_object, sku, picklistId, forcePacking = false, securePackageAmount, delivery_completion_time ,trackURL} = req.body;
     const total_weight_kg = weight_object ? Object.values(weight_object).reduce((sum, w) => sum + w, 0) : 0;
     const headers = { "Content-Type": "application/json" };
     if (req.headers.authorization) {
@@ -8580,6 +8580,7 @@ exports.markAsManualDeliveryStarted = async (req, res) => {
             sku.tracking_info.timestamps = {};
           }
           sku.tracking_info.timestamps.confirmedAt = new Date();
+          sku.tracking_info.borzo_tracking_url= trackURL || "";
           // sku.tracking_info.borzo_payment_amount = data.payment_amount;
           // sku.tracking_info.borzo_delivery_fee_amount = data.delivery_fee_amount;
           // sku.tracking_info.borzo_weight_fee_amount = data.weight_fee_amount;
