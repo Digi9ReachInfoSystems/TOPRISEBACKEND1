@@ -1428,7 +1428,7 @@ exports.intiateBorzoOrderForReturn = async (req, res) => {
       // latitude: 28.583905,
       // longitude: 77.322733,
       note: `RTN,${returnId},${returnRequest.sku}`,
-      client_order_id: `${returnId}`,
+      client_order_id: `RTN,${returnId}`,
     };
 
     const pickupPoint = {
@@ -1595,6 +1595,7 @@ exports.createOrderBorzoInstantUpdated = async (req, res) => {
         });
       }
     }
+    console.log("Creating Borzo order with total_weight_kg:", points);
 
     // Create Borzo order payload with dynamic total_weight_kg
     const borzoOrderPayload = {
@@ -1794,6 +1795,7 @@ exports.createOrderBorzoInstantUpdated = async (req, res) => {
         },
         latitude: point.latitude,
         longitude: point.longitude,
+        note: point.note || "",
         client_order_id:
           point.client_order_id ||
           `BORZO_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
