@@ -8068,6 +8068,7 @@ exports.getAssignedDealersByPincode = async (req, res) => {
     const productData = product.toObject ? product.toObject() : product;
 
     let availableDealer = [];
+
     if (productData.available_dealers && productData.available_dealers.length > 0) {
       availableDealer = await Promise.all(productData.available_dealers.map(async (dealer) => {
         try {
@@ -8451,5 +8452,125 @@ const dealerRes = await axios.get(
   } catch (err) {
     logger.error(`getProductById error: ${err.message}`);
     return sendError(res, err);
+  }
+};
+
+exports.getAssignedDealersByPincodeAndQuantity = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const { id, pincode ,quantity} = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid product ID" });
+    }
+
+    // pincode details fetch function
+    let pincodeDetails;
+    let pincodeId;
+    try {
+      const res = await axios.get(
+        `http://product-service:5001/api/pincodes/get/serviceable/${pincode}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader || "",
+          },
+        }
+      );
+
+      if (res.data?.success && res.data?.data?._id) {
+        pincodeId = res.data.data._id.toString(); // ✅ store as string
+        pincodeDetails = res.data.data;
+      }
+
+    } catch (err) {
+      console.log(err);
+      // throw new Error(`Failed to fetch pincode ${pincode}: ${err.message}`);
+    }
+
+    // 1) Load product, projecting only the available_dealers field
+    const product = await Product.findById(id)
+      .select("available_dealers")
+      .lean();
+    if (!product) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
+    const productData = product.toObject ? product.toObject() : product;
+
+    let availableDealer = [];
+    
+    if (productData.available_dealers && productData.available_dealers.length > 0) {
+      availableDealer = await Promise.all(productData.available_dealers.map(async (dealer) => {
+        try {
+          const res = await axios.get(
+            `http://user-service:5001/api/users/dealer/${dealer.dealers_Ref}`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: authHeader || "",
+              },
+            }
+          );
+          const dealerData = res.data.data;
+
+          return {
+            ...dealer,
+            serviceable_pincodes: dealerData.serviceable_pincodes.includes(pincodeId.toString()) || false,
+          }
+
+
+
+        } catch (err) {
+          console.log(err);
+          return null;
+          // throw new Error(`Failed to fetch pincode ${pincode}: ${err.message}`);
+        }
+      }));
+    }
+    console.log("availableDealer before filter", availableDealer);
+    // console.log("availableDealer", availableDealer);
+    availableDealer = availableDealer.filter(dealer => dealer !== null);
+    availableDealer = availableDealer.filter(dealer => dealer.serviceable_pincodes);
+availableDealer = availableDealer.filter(dealer => dealer.quantity_per_dealer >= quantity);
+console.log("availableDealer after quantity filter", availableDealer);
+    // 2) Sort dealers by priority_override, then by quantity
+    const sorted = (availableDealer || []).filter((d) => d.inStock).slice().sort((a, b) => {
+      if (
+        (b.dealer_priority_override || 0) !== (a.dealer_priority_override || 0)
+      ) {
+        return (
+          (b.dealer_priority_override || 0) - (a.dealer_priority_override || 0)
+        );
+      }
+      return (b.quantity_per_dealer || 0) - (a.quantity_per_dealer || 0);
+    });
+
+    // 3) Populate dealer details and return them
+    const authorizationHeader = req.headers.authorization;
+    const dealersWithDetails = await Promise.all(
+      sorted.map(async (d) => {
+        const dealerDetails = await fetchDealerDetails(d.dealers_Ref, authorizationHeader);
+        return {
+          dealerId: d.dealers_Ref,
+          quantityAvailable: d.quantity_per_dealer,
+          dealerMargin: d.dealer_margin,
+          priorityOverride: d.dealer_priority_override,
+          inStock: d.inStock,
+          dealer_details: dealerDetails,
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      message: "Available dealers fetched",
+      data: dealersWithDetails,
+    });
+  } catch (err) {
+    console.error("getAssignedDealers error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };

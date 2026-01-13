@@ -166,6 +166,11 @@ router.get(
 // );
 
 router.get(
+  "/products/:id/availableDealers/pincode/:pincode/quantity/:quantity",
+  productController.getAssignedDealersByPincodeAndQuantity
+);
+
+router.get(
   "/export",
   authenticate,
   authorizeRoles("Super-admin", "Inventory-Admin"),
