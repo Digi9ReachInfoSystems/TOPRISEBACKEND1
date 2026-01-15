@@ -594,7 +594,7 @@ exports.updateQuantity = async (req, res) => {
         cart.items[itemIndex].is_available = false;
       } else {
         if (cart.items[itemIndex].quantity >= 10) {
-          //return res.status(400).json({ message: "Maximum quantity reached" });
+          return res.status(400).json({ message: "Maximum quantity reached" });
         } else {
           cart.items[itemIndex].quantity += 1;
         }
