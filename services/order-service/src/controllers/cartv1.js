@@ -380,7 +380,11 @@ exports.addToCart = async (req, res) => {
           cart.items[itemIndex].is_available = false
           cart.pincode = pincode;
         } else {
-          cart.items[itemIndex].quantity += quantity;
+          if (cart.items[itemIndex].quantity + quantity > 10) {
+            cart.items[itemIndex].quantity = 10;
+          } else {
+            cart.items[itemIndex].quantity += quantity;
+          }
           cart.items[itemIndex].is_available = true;
           cart.pincode = pincode;
         }
