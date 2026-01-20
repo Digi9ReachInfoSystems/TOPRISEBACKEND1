@@ -2108,7 +2108,8 @@ exports.getReturnRequestsFulfillmentStaff = async (req, res) => {
 
 exports.initiatesManualRapidoPickupForReturn = async (req, res) => {
   try {
-    const { returnId ,trackURL} = req.params;
+    const { returnId ,} = req.params;
+    const { trackURL } = req.body;
     const returnRequest = await Return.findById(returnId);
     if (!returnRequest) {
       return sendError(res, "Return request not found");
