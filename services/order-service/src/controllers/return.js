@@ -2108,7 +2108,7 @@ exports.getReturnRequestsFulfillmentStaff = async (req, res) => {
 
 exports.initiatesManualRapidoPickupForReturn = async (req, res) => {
   try {
-    const { returnId } = req.params;
+    const { returnId ,trackURL} = req.params;
     const returnRequest = await Return.findById(returnId);
     if (!returnRequest) {
       return sendError(res, "Return request not found");
@@ -2134,7 +2134,7 @@ exports.initiatesManualRapidoPickupForReturn = async (req, res) => {
     returnRequest.returnStatus = "Shipment_Intiated";
     returnRequest.shipment_started = true;
     returnRequest.shipment_completed = false;
-    returnRequest.timestamps.borzoShipmentInitiatedAt = new Date();
+    returnRequest.tracking_info.borzo_tracking_url = trackURL||"";
     await returnRequest.save();
     return sendSuccess(res, returnRequest, "Manual Rapido pickup initiated successfully");
   } catch (error) {
