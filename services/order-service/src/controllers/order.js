@@ -6169,6 +6169,7 @@ exports.createOrderBorzoInstantUpdated = async (req, res) => {
       vehicle_type_id,
       points = [],
     } = req.body;
+    // console.log("Received Borzo Instant Order Request:", req.body);
 
     // Validate required fields
     if (!points || points.length < 2) {
@@ -7696,6 +7697,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
           longitude: dealerGeo?.longitude || 77.31912,
           // latitude: 28.583905,
           // longitude: 77.322733,
+          // taking_amount:10,
           client_order_id: `${order.orderId}`,
           note: sku ? `ORDS,${order.orderId},${sku}` : `ORDM,${order.orderId},${skuList.join(",")}`,
         };
@@ -7714,6 +7716,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
           // longitude: 77.322733,
           is_order_payment_here: true,
           client_order_id: `${order.orderId}`,
+          //  taking_amount:10,
           note: sku ? `ORDS,${order.orderId},${sku}` : `ORDM,${order.orderId},${skuList.join(",")}`,
           // taking_amount: order.paymentType === "COD" ? sku?skuDetails.totalPrice.toFixed(2).toString() :total_Order_Amount.toFixed(2).toString(): 0.00,
           required_finish_datetime: delivery_completion_time || null,
@@ -8056,8 +8059,9 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
           longitude: dealerGeo?.longitude || 77.31912,
           // latitude: 28.583905,
           // longitude: 77.322733,
-          client_order_id: sku ? `ORDS,${order.orderId},${sku}` : `ORDM,${order.orderId},${skuList.join(",")}`,
-
+            // taking_amount:"0.00",
+          client_order_id: `${order.orderId}`,
+          note: sku ? `ORDS,${order.orderId},${sku}` : `ORDM,${order.orderId},${skuList.join(",")}`,
         };
 
 
@@ -8072,6 +8076,8 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
           longitude: customerGeo?.longitude || 77.322733,
           // latitude: 28.583905,
           // longitude: 77.322733,
+          // taking_amount:"1.00",
+          //  buyout_amount:"10.00",
           is_order_payment_here: true,
            client_order_id: `${order.orderId}`,
           note: sku ? `ORDS,${order.orderId},${sku}` : `ORDM,${order.orderId},${skuList.join(",")}`,
@@ -8096,6 +8102,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
 
 
         const orderData = {
+          type: "endofday",
           matter: "Automobile Parts Delivery",
           total_weight_kg: total_weight_kg || "3", // Dynamic weight from request body
           insurance_amount: securePackageAmount, // Default insurance
@@ -8112,13 +8119,14 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
             `[BORZO] Creating instant Borzo order for ${order.orderId}`
           );
           // Create instant order
-          const instantReq = { body: { ...orderData, type: "standard" } };
+          const instantReq = { body: { ...orderData, type: "endofday" } };
           const instantRes = {
             status: (code) => ({
               json: async (Data) => {
                 console.log("borzo instant response", Data, code);
                 console.log("details Error ", Data?.borzo_error?.parameter_errors.points[0])
                 console.log("details Error ", Data?.borzo_error?.parameter_errors.points[1])
+                // console.log("points used", Data.borzo_order.order.points);
 
                 if (code === 200) {
                   const data = Data.borzo_order.order;
