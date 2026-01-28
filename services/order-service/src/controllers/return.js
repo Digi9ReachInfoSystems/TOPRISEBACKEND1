@@ -2136,6 +2136,7 @@ exports.initiatesManualRapidoPickupForReturn = async (req, res) => {
     returnRequest.shipment_started = true;
     returnRequest.shipment_completed = false;
     returnRequest.tracking_info.borzo_tracking_url = trackURL||"";
+    returnRequest.timestamps.borzoShipmentInitiatedAt = new Date();
     await returnRequest.save();
     return sendSuccess(res, returnRequest, "Manual Rapido pickup initiated successfully");
   } catch (error) {
