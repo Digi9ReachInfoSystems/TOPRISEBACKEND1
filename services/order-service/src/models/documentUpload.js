@@ -59,7 +59,7 @@ const DocumentUploadSchema = new mongoose.Schema(
         },
         priority: {
             type: String,
-            enum: ["Low", "Medium", "High", "Urgent"],
+            enum: ["Low", "Medium", "High", "Urgent","null"],
             default: "Medium",
         },
         admin_notes: [
