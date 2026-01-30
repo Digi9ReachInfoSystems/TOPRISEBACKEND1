@@ -760,3 +760,155 @@ exports.getDeliveryChargeForBuyNow = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+exports.bulkAddToCart = async (req, res) => {
+  try {
+    const { userId, pincode, products } = req.body; 
+    // products = [ { productId, quantity } ]
+
+    const authHeader = req.headers.authorization;
+
+    // get pincode details
+    let pincodeId;
+    try {
+      const pinRes = await axios.get(
+        `http://product-service:5001/api/pincodes/get/serviceable/${pincode}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader || "",
+          },
+        }
+      );
+      if (pinRes.data?.success && pinRes.data?.data?._id) {
+        pincodeId = pinRes.data.data._id.toString();
+      }
+    } catch (err) {
+      logger.error(`❌ Failed to fetch pincode details: ${err}`);
+    }
+
+    let cart = await Cart.findOne({ userId });
+    if (!cart) {
+      cart = new Cart({ userId, items: [], pincode });
+    }
+
+    for (const { productId, quantity: reqQty } of products) {
+      let quantity = parseInt(reqQty) || 1;
+      if (quantity > 10) quantity = 10;
+
+      // fetch product
+      const productRes = await axios.get(
+        `http://product-service:5001/products/v1/get-ProductById/${productId}`,
+        { headers: { Authorization: authHeader } }
+      );
+      const productData = productRes?.data?.data;
+      if (!productData) {
+        logger.error(`❌ Product not found: ${productId}`);
+        continue;
+      }
+
+      // check dealers
+      let availableDealer = [];
+      if (productData.available_dealers?.length > 0) {
+        availableDealer = await Promise.all(
+          productData.available_dealers.map(async (dealer) => {
+            try {
+              const dealerRes = await axios.get(
+                `http://user-service:5001/api/users/dealer/${dealer.dealers_Ref}`,
+                {
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: authHeader || "",
+                  },
+                }
+              );
+              const dealerData = dealerRes.data.data;
+              return {
+                ...dealer,
+                serviceable_pincodes: dealerData.serviceable_pincodes.includes(pincodeId),
+              };
+            } catch (err) {
+              logger.error(`❌ Dealer fetch failed: ${err}`);
+              return null;
+            }
+          })
+        );
+      }
+      availableDealer = availableDealer.filter(Boolean);
+
+      const isServiceable = availableDealer.some(
+        (dealer) => dealer.serviceable_pincodes && dealer.inStock
+      );
+
+      // check if product already in cart
+      const itemIndex = cart.items.findIndex(
+        (item) => item.productId.toString() === productId
+      );
+
+      if (itemIndex > -1) {
+        // update existing item
+        if (cart.items[itemIndex].quantity + quantity > 10) {
+          cart.items[itemIndex].quantity = 10;
+        } else {
+          cart.items[itemIndex].quantity += quantity;
+        }
+        cart.items[itemIndex].is_available = isServiceable;
+      } else {
+        // add new item
+        cart.items.push({
+          productId,
+          manufacturer_part_name: productData.manufacturer_part_name,
+          product_image:
+            productData.images?.length > 0
+              ? productData.images
+              : [
+                  "https://firebasestorage.googleapis.com/v0/b/lmseducationplaform.appspot.com/o/Media%201.svg?alt=media&token=454fba64-184a-4612-a5df-e473f964daa1",
+                ],
+          product_name: productData.product_name,
+          quantity,
+          gst_percentage: productData.gst_percentage.toString(),
+          selling_price: productData.selling_price,
+          mrp: productData.mrp_with_gst,
+          mrp_gst_amount:
+            (productData.mrp_with_gst / 100) * productData.gst_percentage,
+          total_mrp:
+            productData.mrp_with_gst +
+            (productData.mrp_with_gst / 100) * productData.gst_percentage,
+          sku: productData.sku_code,
+          gst_amount:
+            (productData.selling_price / 100) *
+            productData.gst_percentage *
+            quantity,
+          product_total: productData.selling_price * quantity,
+          totalPrice:
+            (productData.selling_price +
+              (productData.selling_price / 100) *
+                productData.gst_percentage) *
+            quantity,
+          is_available: isServiceable,
+        });
+      }
+    }
+
+    cart.pincode = pincode;
+    await cart.save();
+
+    cart.items = await updateCartItemsPrice(
+      cart.items,
+      req.headers.authorization,
+      pincode
+    );
+    const totals = await calculateCartTotals(cart.items, cart.deliveryCharge || 0);
+    Object.assign(cart, totals);
+
+    const savedCart = await cart.save();
+    cacheDel(`cart:${userId}`);
+    logger.info(`✅ Bulk products added to cart for user: ${userId}`);
+
+    return sendSuccess(res, { cart: savedCart, success: true }, "Products added to cart successfully");
+  } catch (err) {
+    logger.error(`❌ Bulk add to cart error: ${err}`);
+    return sendError(res, err);
+  }
+};
+

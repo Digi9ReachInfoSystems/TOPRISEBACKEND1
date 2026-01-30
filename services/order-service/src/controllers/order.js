@@ -7580,7 +7580,7 @@ exports.markDealerPackedAndUpdateOrderStatusBySKUOne = async (req, res) => {
 
     if (allPacked) {
       const packedAt = new Date();
-      order.status = "Packed";
+      order.status = "Shipped";
       order.timestamps.packedAt = packedAt;
 
       //   // Check for SLA violation when order is marked as packed
@@ -8653,7 +8653,7 @@ exports.markAsManualDeliveryStarted = async (req, res) => {
     );
     if (allPacked) {
       const packedAt = new Date();
-      order.status = "Packed";
+      order.status = "Shipped";
       order.timestamps.packedAt = packedAt;
     }
     await order.save();
